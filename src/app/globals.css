@@ -1,0 +1,136 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   БАЗА
+   ============================================================ */
+:root {
+  --background: #f6f4ef;
+  --foreground: #0d0d0d;
+  /* Дисплейный шрифт заголовков — переключается dev-инструментом
+     на время выбора владельцем (Cormorant / Prata / Jost) */
+  --font-display: var(--font-cormorant);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-manrope), system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Страховка от случайного горизонтального скролла (полноширинные элементы,
+   бегущая лента). overflow-x: clip не создаёт скролл-контейнер и не мешает
+   вертикальной прокрутке/Lenis. */
+html,
+body {
+  overflow-x: clip;
+}
+
+/* Фирменное выделение текста */
+::selection {
+  background: #fd0000;
+  color: #ffffff;
+}
+
+/* Отступ для якорной навигации под фиксированным хедером */
+:where(section[id], div[id]) {
+  scroll-margin-top: 6rem;
+}
+
+/* Тонкая зернистость поверх фона — добавляет «дорогую» фактуру */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+  opacity: 0.022;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ============================================================
+   ПРЕЛОАДЕР — страховка без JavaScript
+   Оверлей приходит с сервера; если гидратация не случилась за 5 с
+   (медленная сеть, долгая dev-компиляция), он растворяется сам.
+   При обычной загрузке React убирает этот класс до срабатывания.
+   ============================================================ */
+@keyframes intro-failsafe {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+.intro-failsafe {
+  animation: intro-failsafe 0.4s ease 5s forwards;
+}
+
+/* ============================================================
+   LENIS — плавный скролл (рекомендованные стили)
+   ============================================================ */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+.lenis.lenis-smooth iframe {
+  pointer-events: none;
+}
+
+/* ============================================================
+   MARQUEE (бегущая лента брендов)
+   ============================================================ */
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+.animate-marquee {
+  animation: marquee 42s linear infinite;
+  will-change: transform;
+}
+/* Пауза при наведении (смена duration на лету заставляет ленту прыгать —
+   прогресс CSS-анимации пересчитывается) */
+.marquee-group:hover .animate-marquee {
+  animation-play-state: paused;
+}
+
+/* ============================================================
+   ДОСТУПНОСТЬ: уважаем «уменьшить движение»
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee {
+    animation: none;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}

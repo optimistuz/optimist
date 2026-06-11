@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Оптимист — Сеть оптик в Ташкенте</title>
+  <meta name="description" content="Премиальная сеть оптик в Ташкенте. Диагностика зрения, подбор оправ, изготовление линз с 2008 года.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- NAVIGATION -->
+  <header class="nav" id="nav">
+    <a href="#home" class="nav-logo" aria-label="Оптимист — главная">ОПТИМИСТ</a>
+    <nav class="nav-links" aria-label="Основная навигация">
+      <a href="#catalog">Каталог</a>
+      <a href="#services">Услуги</a>
+      <a href="#booking">Запись</a>
+      <a href="#contacts">Контакты</a>
+    </nav>
+    <a href="#booking" class="nav-cta">Записаться</a>
+    <button class="nav-burger" id="nav-burger" aria-label="Открыть меню" aria-expanded="false" aria-controls="mobile-menu">
+      <span></span>
+      <span></span>
+    </button>
+  </header>
+
+  <!-- MOBILE MENU -->
+  <nav class="mobile-menu" id="mobile-menu" aria-label="Мобильное меню" aria-hidden="true">
+    <a href="#catalog" class="mobile-link">Каталог</a>
+    <a href="#services" class="mobile-link">Услуги</a>
+    <a href="#booking" class="mobile-link">Запись</a>
+    <a href="#contacts" class="mobile-link">Контакты</a>
+    <a href="#booking" class="btn btn-gold mobile-cta">Записаться на приём</a>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero" id="home" aria-label="Главный экран">
+    <div class="hero-inner">
+      <div class="hero-content">
+        <p class="hero-badge">
+          <span class="badge-dot" aria-hidden="true"></span>
+          Ташкент · с 2008 года
+        </p>
+        <h1 class="hero-title">
+          Видеть<br>
+          <em>мир</em><br>
+          иначе
+        </h1>
+        <p class="hero-text">
+          Четыре филиала в Ташкенте. Более 500 моделей оправ от ведущих брендов. Диагностика зрения и изготовление линз в день обращения.
+        </p>
+        <div class="hero-actions">
+          <a href="#catalog" class="btn btn-gold">Каталог оправ</a>
+          <a href="#booking" class="btn btn-outline">Записаться</a>
+        </div>
+      </div>
+      <div class="hero-visual" aria-hidden="true">
+        <div class="hero-frame">
+          <div class="hero-frame-inner">
+            <img
+              src="https://picsum.photos/seed/optimist-optics-main/480/580"
+              alt="Стильные очки из коллекции Оптимист"
+              width="480"
+              height="580"
+            >
+          </div>
+          <div class="hero-ring hero-ring--lg"></div>
+          <div class="hero-ring hero-ring--sm"></div>
+        </div>
+        <div class="hero-stat-block">
+          <div class="hero-stat">
+            <span class="stat-hero-num">500<em>+</em></span>
+            <span class="stat-hero-label">моделей оправ</span>
+          </div>
+          <div class="hero-stat-divider"></div>
+          <div class="hero-stat">
+            <span class="stat-hero-num">15</span>
+            <span class="stat-hero-label">лет на рынке</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="hero-diag" aria-hidden="true"></div>
+    <div class="hero-scroll-hint" aria-hidden="true">
+      <span>прокрутите</span>
+      <div class="scroll-bar"></div>
+    </div>
+  </section>
+
+  <!-- MARQUEE STRIP -->
+  <div class="marquee-wrap" aria-hidden="true">
+    <div class="marquee-track">
+      <div class="marquee-inner">
+        <span>ОПТИМИСТ</span><span class="sep">·</span>
+        <span>ТАШКЕНТ</span><span class="sep">·</span>
+        <span>КОЛЛЕКЦИЯ 2025</span><span class="sep">·</span>
+        <span>КАЧЕСТВО ЗРЕНИЯ</span><span class="sep">·</span>
+        <span>СТИЛЬ И ТОЧНОСТЬ</span><span class="sep">·</span>
+        <span>ЧЕТЫРЕ ФИЛИАЛА</span><span class="sep">·</span>
+        <span>ОПТИМИСТ</span><span class="sep">·</span>
+        <span>ТАШКЕНТ</span><span class="sep">·</span>
+        <span>КОЛЛЕКЦИЯ 2025</span><span class="sep">·</span>
+        <span>КАЧЕСТВО ЗРЕНИЯ</span><span class="sep">·</span>
+        <span>СТИЛЬ И ТОЧНОСТЬ</span><span class="sep">·</span>
+        <span>ЧЕТЫРЕ ФИЛИАЛА</span><span class="sep">·</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- STATS -->
+  <section class="stats" aria-label="Ключевые показатели">
+    <div class="container">
+      <div class="stats-grid">
+        <div class="stat-card reveal">
+          <span class="stat-card-num">15<sup>+</sup></span>
+          <span class="stat-card-label">лет на рынке</span>
+        </div>
+        <div class="stat-card reveal">
+          <span class="stat-card-num">3 000<sup>+</sup></span>
+          <span class="stat-card-label">довольных клиентов</span>
+        </div>
+        <div class="stat-card reveal">
+          <span class="stat-card-num">500<sup>+</sup></span>
+          <span class="stat-card-label">моделей оправ</span>
+        </div>
+        <div class="stat-card reveal">
+          <span class="stat-card-num">4</span>
+          <span class="stat-card-label">филиала в Ташкенте</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CATALOG -->
+  <section class="catalog" id="catalog" aria-label="Каталог оправ">
+    <div class="container">
+      <div class="section-head reveal">
+        <p class="section-label">Коллекция</p>
+        <h2 class="section-title">Каталог оправ</h2>
+        <div class="gold-line" aria-hidden="true"></div>
+      </div>
+      <div class="catalog-grid reveal">
+        <div class="catalog-item item-tall">
+          <div class="catalog-img-wrap">
+            <img
+              src="https://picsum.photos/seed/mens-frames-opt/540/720"
+              alt="Мужские оправы"
+              loading="lazy"
+              width="540"
+              height="720"
+            >
+          </div>
+          <div class="catalog-overlay">
+            <p class="cat-num" aria-hidden="true">01</p>
+            <h3>Мужские</h3>
+            <p class="cat-count">127 моделей</p>
+          </div>
+        </div>
+        <div class="catalog-item item-wide">
+          <div class="catalog-img-wrap">
+            <img
+              src="https://picsum.photos/seed/womens-frames-opt/760/380"
+              alt="Женские оправы"
+              loading="lazy"
+              width="760"
+              height="380"
+            >
+          </div>
+          <div class="catalog-overlay">
+            <p class="cat-num" aria-hidden="true">02</p>
+            <h3>Женские</h3>
+            <p class="cat-count">189 моделей</p>
+          </div>
+        </div>
+        <div class="catalog-item">
+          <div class="catalog-img-wrap">
+            <img
+              src="https://picsum.photos/seed/kids-frames-opt/380/260"
+              alt="Детские оправы"
+              loading="lazy"
+              width="380"
+              height="260"
+            >
+          </div>
+          <div class="catalog-overlay">
+            <p class="cat-num" aria-hidden="true">03</p>
+            <h3>Детские</h3>
+            <p class="cat-count">84 модели</p>
+          </div>
+        </div>
+        <div class="catalog-item">
+          <div class="catalog-img-wrap">
+            <img
+              src="https://picsum.photos/seed/sun-frames-opt/380/260"
+              alt="Солнцезащитные очки"
+              loading="lazy"
+              width="380"
+              height="260"
+            >
+          </div>
+          <div class="catalog-overlay">
+            <p class="cat-num" aria-hidden="true">04</p>
+            <h3>Солнечные</h3>
+            <p class="cat-count">211 моделей</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SERVICES -->
+  <section class="services" id="services" aria-label="Услуги">
+    <div class="container">
+      <div class="section-head reveal">
+        <p class="section-label">Что мы делаем</p>
+        <h2 class="section-title">Наши услуги</h2>
+        <div class="gold-line" aria-hidden="true"></div>
+      </div>
+      <ol class="services-list" aria-label="Список услуг">
+        <li class="service-row reveal">
+          <span class="service-num" aria-hidden="true">01</span>
+          <div class="service-body">
+            <h3 class="service-title">Диагностика зрения</h3>
+            <p class="service-desc">Точная проверка остроты зрения на современном оборудовании. Результат за 20 минут — без очереди.</p>
+          </div>
+          <span class="service-tag">Бесплатно</span>
+        </li>
+        <li class="service-row reveal">
+          <span class="service-num" aria-hidden="true">02</span>
+          <div class="service-body">
+            <h3 class="service-title">Подбор оправ</h3>
+            <p class="service-desc">Персональный стилист подберёт оправу по форме лица, образу жизни и вкусу. Более 500 моделей в наличии.</p>
+          </div>
+          <span class="service-tag">Консультация</span>
+        </li>
+        <li class="service-row reveal">
+          <span class="service-num" aria-hidden="true">03</span>
+          <div class="service-body">
+            <h3 class="service-title">Изготовление линз</h3>
+            <p class="service-desc">Линзы для любых диоптрий: однофокальные, прогрессивные, фотохромные. Срок изготовления — от 1 часа.</p>
+          </div>
+          <span class="service-tag">От 1 часа</span>
+        </li>
+        <li class="service-row reveal">
+          <span class="service-num" aria-hidden="true">04</span>
+          <div class="service-body">
+            <h3 class="service-title">Контактные линзы</h3>
+            <p class="service-desc">Широкий ассортимент однодневных и плановой замены линз. Обучение надеванию и уходу в стоимость включено.</p>
+          </div>
+          <span class="service-tag">В наличии</span>
+        </li>
+        <li class="service-row reveal">
+          <span class="service-num" aria-hidden="true">05</span>
+          <div class="service-body">
+            <h3 class="service-title">Ремонт очков</h3>
+            <p class="service-desc">Пайка оправы, замена дужки, подгонка по форме лица — быстрый профессиональный ремонт при вас.</p>
+          </div>
+          <span class="service-tag">Срочно</span>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- BOOKING -->
+  <section class="booking" id="booking" aria-label="Запись на приём">
+    <div class="container">
+      <div class="booking-inner">
+        <div class="booking-info reveal">
+          <p class="section-label">Онлайн-запись</p>
+          <h2 class="section-title">Запись<br>на приём</h2>
+          <div class="gold-line" aria-hidden="true"></div>
+          <p class="booking-text">
+            Оставьте заявку — мы перезвоним для подтверждения в течение 30 минут и подберём удобное время.
+          </p>
+          <div class="booking-hours">
+            <div class="hours-row">
+              <span class="hours-day">Понедельник — Суббота</span>
+              <span class="hours-time">09:00 — 20:00</span>
+            </div>
+            <div class="hours-row">
+              <span class="hours-day">Воскресенье</span>
+              <span class="hours-time">10:00 — 18:00</span>
+            </div>
+          </div>
+          <div class="booking-note">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            Диагностика зрения — бесплатно
+          </div>
+        </div>
+        <form class="booking-form reveal" id="booking-form" novalidate aria-label="Форма записи">
+          <div class="form-group">
+            <label for="f-name">
+              Ваше имя
+              <span class="req" aria-label="обязательное поле">*</span>
+            </label>
+            <input
+              type="text"
+              id="f-name"
+              name="name"
+              placeholder="Как к вам обращаться?"
+              autocomplete="name"
+              required
+              aria-describedby="f-name-error"
+            >
+            <span class="field-error" id="f-name-error" role="alert"></span>
+          </div>
+          <div class="form-group">
+            <label for="f-phone">
+              Номер телефона
+              <span class="req" aria-label="обязательное поле">*</span>
+            </label>
+            <input
+              type="tel"
+              id="f-phone"
+              name="phone"
+              placeholder="+998 90 000 00 00"
+              autocomplete="tel"
+              required
+              aria-describedby="f-phone-error"
+            >
+            <span class="field-error" id="f-phone-error" role="alert"></span>
+          </div>
+          <div class="form-group">
+            <label for="f-service">Выберите услугу</label>
+            <div class="select-wrap">
+              <select id="f-service" name="service" aria-label="Услуга">
+                <option value="">Все услуги доступны</option>
+                <option value="diagnosis">Диагностика зрения</option>
+                <option value="frames">Подбор оправ</option>
+                <option value="lenses">Изготовление линз</option>
+                <option value="contact">Контактные линзы</option>
+                <option value="repair">Ремонт очков</option>
+              </select>
+              <svg class="select-arrow" width="12" height="8" viewBox="0 0 12 8" fill="none" aria-hidden="true">
+                <path d="M1 1l5 5 5-5" stroke="#c9a227" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="f-date">Предпочтительная дата</label>
+            <input
+              type="date"
+              id="f-date"
+              name="date"
+              autocomplete="off"
+              aria-label="Дата записи"
+            >
+          </div>
+          <button type="submit" class="btn btn-gold btn-full" id="submit-btn">
+            <span class="btn-label">Отправить заявку</span>
+            <span class="btn-loading" hidden aria-live="polite">Отправляем...</span>
+          </button>
+          <div class="form-success" id="form-success" hidden role="status">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="8,12 11,15 16,9"/>
+            </svg>
+            Заявка принята! Мы перезвоним вам в течение 30 минут.
+          </div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONTACTS -->
+  <section class="contacts" id="contacts" aria-label="Контакты">
+    <div class="container">
+      <div class="section-head reveal">
+        <p class="section-label">Найдите нас</p>
+        <h2 class="section-title">Контакты</h2>
+        <div class="gold-line" aria-hidden="true"></div>
+      </div>
+      <div class="contacts-grid">
+        <address class="contacts-info reveal">
+          <div class="contact-block">
+            <p class="contact-label">Главный офис</p>
+            <p class="contact-value">
+              ул. Амира Темура, 107В<br>
+              Ташкент, Узбекистан, 100084
+            </p>
+          </div>
+          <div class="contact-block">
+            <p class="contact-label">Телефон</p>
+            <p class="contact-value">
+              <a href="tel:+998712001234">+998 71 200-12-34</a><br>
+              <a href="tel:+998990001234">+998 99 000-12-34</a>
+            </p>
+          </div>
+          <div class="contact-block">
+            <p class="contact-label">Время работы</p>
+            <p class="contact-value">
+              Пн — Сб: 09:00 — 20:00<br>
+              Воскресенье: 10:00 — 18:00
+            </p>
+          </div>
+          <div class="contact-block">
+            <p class="contact-label">Все филиалы</p>
+            <ul class="branches">
+              <li>Яккасарайский р-н, ул. Навои, 34</li>
+              <li>Мирзо-Улугбекский р-н, ул. Фаробий, 12</li>
+              <li>Сергелийский р-н, ТЦ «Абу Сахий», 1 этаж</li>
+            </ul>
+          </div>
+        </address>
+        <div class="contacts-map reveal">
+          <div class="map-frame" role="img" aria-label="Карта расположения: ул. Амира Темура, 107В">
+            <img
+              src="https://picsum.photos/seed/tashkent-city-view/720/460"
+              alt="Расположение офиса"
+              loading="lazy"
+              width="720"
+              height="460"
+              class="map-img"
+            >
+            <div class="map-overlay" aria-hidden="true">
+              <div class="map-pin">
+                <svg width="32" height="42" viewBox="0 0 32 42" fill="none">
+                  <path d="M16 0C7.163 0 0 7.163 0 16c0 10.667 16 26 16 26S32 26.667 32 16C32 7.163 24.837 0 16 0z" fill="#c9a227"/>
+                  <circle cx="16" cy="16" r="6" fill="#0a1f44"/>
+                </svg>
+              </div>
+              <p class="map-label">ул. Амира Темура, 107В</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="footer" aria-label="Подвал сайта">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <p class="footer-logo">ОПТИМИСТ</p>
+          <p class="footer-tagline">Сеть оптик в Ташкенте</p>
+        </div>
+        <nav class="footer-nav" aria-label="Навигация в подвале">
+          <a href="#catalog">Каталог</a>
+          <a href="#services">Услуги</a>
+          <a href="#booking">Запись</a>
+          <a href="#contacts">Контакты</a>
+        </nav>
+        <div class="footer-contacts">
+          <a href="tel:+998712001234">+998 71 200-12-34</a>
+          <a href="mailto:info@optimist-optics.uz">info@optimist-optics.uz</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>© 2025 Оптимист. Все права защищены.</p>
+        <p class="footer-credit">Ташкент, Узбекистан</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/script.js"></script>
+</body>
+</html>
