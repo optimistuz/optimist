@@ -13,11 +13,10 @@ import { Button } from "@/components/ui/button";
 import { AnimatedLink } from "@/components/ui/animated-link";
 import { Magnetic } from "@/components/ui/magnetic";
 import { MotionFocus } from "@/components/ui/motion-focus";
-import { FocalPlane } from "@/components/ui/focal-plane";
-import { Photo } from "@/components/ui/photo";
+import { FloatFrame } from "@/components/ui/float-frame";
 import { useIntroDone } from "@/components/ui/intro";
 import { hero } from "@/content/home";
-import { DURATION, EASE, heroFocus } from "@/lib/motion";
+import { EASE } from "@/lib/motion";
 
 const lineParent: Variants = {
   hidden: {},
@@ -51,21 +50,18 @@ export default function Hero() {
     target: ref,
     offset: ["start start", "end start"],
   });
-  // Едва заметный parallax фото + плавное исчезновение подсказки скролла
-  const imageY = useTransform(scrollYProgress, [0, 1], [0, -60]);
+  // Плавное исчезновение подсказки скролла при начале прокрутки
   const hintOpacity = useTransform(scrollYProgress, [0, 0.06], [1, 0]);
 
   // Прощальная хореография: при скролле прочь строки заголовка уезжают
   // вверх на разных скоростях (параллакс глубины), подзаголовок и кнопки
-  // растворяются, фото чуть сжимается. Только transform/opacity.
+  // растворяются. Оправа сжимается и уходит из фокуса (рэк-фокус) —
+  // это живёт внутри FloatFrame (exitScale / exitDefocus).
   const lineY0 = useTransform(scrollYProgress, [0, 1], [0, -108]); // ×0.9
   const lineY1 = useTransform(scrollYProgress, [0, 1], [0, -120]); // ×1.0
   const lineY2 = useTransform(scrollYProgress, [0, 1], [0, -132]); // ×1.1
   const lineYs = [lineY0, lineY1, lineY2];
   const farewellOpacity = useTransform(scrollYProgress, [0, 0.5], [1, 0]);
-  const exitScale = useTransform(scrollYProgress, [0, 1], [1, 0.97]);
-  // Боке-ореол едет вместе с фото, но медленнее (×0.6) — глубина света
-  const bokehY = useTransform(scrollYProgress, [0, 1], [0, -36]);
 
   return (
     <section
@@ -74,8 +70,31 @@ export default function Hero() {
       className="relative flex min-h-[100dvh] items-center overflow-hidden pb-16 pt-28"
     >
       <Container className="grid w-full grid-cols-1 items-center gap-14 lg:grid-cols-12 lg:gap-8">
+        {/* Парящая оправа: лежит прямо на странице (multiply, без рамки).
+            Desktop: absolute от секции — верх под стеклянную шапку (матовый
+            просвет дужки — фича), правый край за вьюпорт; топ-слой текста
+            выше (1024–1279 допустим заход под текст). Мобайл: в потоке над
+            заголовком, ~85vw, выпуск только за правый край. */}
+        <FloatFrame
+          slot="hero-float"
+          priority
+          rotate={-8}
+          parallaxSpeed={0.92}
+          cursorTilt
+          rotateDrift
+          entrance="focus"
+          entranceWaitIntro
+          exitDefocus={4}
+          exitScale={0.97}
+          shadow="natural"
+          sectionTone="offwhite"
+          sizes="(min-width:1280px) 48vw, (min-width:1024px) 52vw, 85vw"
+          widthClass="w-[85vw] lg:w-[52vw] xl:w-[48vw]"
+          className="z-0 -mr-[12vw] -mt-6 ml-auto lg:absolute lg:right-[-8vw] lg:top-[2vw] lg:m-0"
+        />
+
         {/* Текст */}
-        <div className="lg:col-span-7">
+        <div className="relative z-10 lg:col-span-7">
           <motion.p
             initial={reduce ? false : { opacity: 0, y: 12 }}
             animate={reduce ? {} : introDone ? { opacity: 1, y: 0 } : {}}
@@ -163,63 +182,6 @@ export default function Hero() {
           </motion.div>
         </div>
 
-        {/* Фото: одноразовое «наведение на резкость» + лёгкий параллакс.
-            Кадр горизонтальный, поэтому пропорция 4:3 — оправа видна целиком. */}
-        <div className="lg:col-span-5">
-          {/* Обёртка прощания: scale 1→0.97 по скроллу — отдельный слой,
-              не делит transform ни с параллаксом, ни с heroFocus */}
-          <motion.div
-            style={reduce ? undefined : { scale: exitScale }}
-            className="relative ml-auto w-full max-w-lg"
-          >
-            {/* Ambient bokeh: расфокусированный двойник фото как световой
-                ореол за предметом. Статичный blur (не анимируется), без
-                priority — LCP остаётся за резким фото. Боке — наша
-                физика, не свечение. */}
-            <motion.div
-              aria-hidden
-              style={reduce ? undefined : { y: bokehY }}
-              className="pointer-events-none absolute -inset-[10%] opacity-20 lg:opacity-30"
-            >
-              {/* Проявляется вместе с фото (после интро), не раньше */}
-              <motion.div
-                initial={reduce ? false : { opacity: 0 }}
-                animate={reduce ? undefined : introDone ? { opacity: 1 } : {}}
-                transition={{ duration: DURATION.slow, ease: EASE, delay: 0.35 }}
-                className="absolute inset-0 scale-[1.12] blur-[32px] saturate-[1.15] lg:blur-[48px]"
-                style={{
-                  maskImage:
-                    "radial-gradient(closest-side, #000 55%, transparent 100%)",
-                  WebkitMaskImage:
-                    "radial-gradient(closest-side, #000 55%, transparent 100%)",
-                }}
-              >
-                <Photo slot="hero" alt="" sizes="(min-width:1024px) 48vw, 100vw" />
-              </motion.div>
-            </motion.div>
-
-            <motion.div
-              style={reduce ? undefined : { y: imageY }}
-              variants={reduce ? undefined : heroFocus}
-              initial={reduce ? false : "hidden"}
-              animate={reduce ? undefined : introDone ? "visible" : "hidden"}
-              transition={{ duration: DURATION.slow, ease: EASE, delay: 0.25 }}
-              className="relative aspect-[4/3] w-full overflow-hidden rounded-[2rem]"
-            >
-              {/* Фокальная плоскость — отдельный слой, не дерётся с
-                  heroFocus-фильтром motion.div выше */}
-              <FocalPlane className="absolute inset-0">
-                <Photo
-                  slot="hero"
-                  alt="Классическая оправа крупным планом на белом фоне"
-                  label={hero.imageLabel}
-                  priority
-                  sizes="(min-width:1024px) 40vw, 90vw"
-                />
-              </FocalPlane>
-            </motion.div>
-          </motion.div>
-        </div>
       </Container>
 
       {/* Подсказка скролла: мягкая пульсация линии, исчезает при начале скролла */}

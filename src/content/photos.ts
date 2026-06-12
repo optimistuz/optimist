@@ -13,10 +13,26 @@ export type PhotoSlot =
   | "street"
   | "book"
   | "hero"
+  | "hero-float"
+  | "deco-1"
+  | "deco-2"
   | "frames-optical"
   | "frames-sun"
   | "frames-premium"
   | "interior";
+
+/**
+ * Интринсик-размеры кадров «парящей» техники (mix-blend-mode: multiply).
+ * FloatFrame рендерит next/image с явными width/height (НЕ fill) —
+ * пропорция обязана быть известна до загрузки, чтобы не было сдвигов
+ * макета и чтобы изолированная коробка совпала с кадром пиксель в пиксель.
+ */
+export const FLOAT_INTRINSIC: Partial<
+  Record<PhotoSlot, { width: number; height: number }>
+> = {
+  "hero-float": { width: 2400, height: 1600 },
+  "deco-2": { width: 1600, height: 1067 },
+};
 
 export const PHOTOS: Record<PhotoSlot, string | null> = {
   // Платановая аллея с уходящей перспективой.
@@ -29,8 +45,27 @@ export const PHOTOS: Record<PhotoSlot, string | null> = {
   book: "/photos/book.jpg",
 
   // Одна оправа-клабмастер крупным планом на чисто белом фоне.
+  // Запас: в hero заменена «парящей» оправой (hero-float), слот сохранён.
   // Фото: Stephen Niemeier — https://www.pexels.com/photo/black-framed-clubmaster-style-eyeglasses-131018/
   hero: "/photos/hero.jpg",
+
+  // «Парящая» оправа hero: чёрный фронт, белые дужки, вид 3/4, жёсткая
+  // живая тень. Для mix-blend-mode: multiply — фон доведён до честного
+  // (255,255,255). Нормализовано scripts/normalize-white.ps1:
+  // кроп 6% по краям, gain R/G/B = 1.0699 / 1.0566 / 1.0356.
+  // Фото: Daniel Balarezo — https://www.pexels.com/photo/sunglasses-on-a-white-surface-11199907/
+  "hero-float": "/photos/hero-float.jpg",
+
+  // Деко-точка А (стык манифеста и «Зрения») — ПУСТА: ни один кандидат
+  // не прошёл рубежи нормализации (gain ≤ 1.085) без выжигания тени.
+  // Пустой слот лучше заметного шва; ждёт собственной съёмки.
+  "deco-1": null,
+
+  // Деко-точка Б («Экспертиза», у таблицы Сивцева): пара восьмиугольных
+  // оправ, чёрный ацетат + золотой металл, сине-градиентные линзы.
+  // Нормализовано: gain R/G/B = 1.0759 / 1.0759 / 1.0479.
+  // Фото: Volker Meyer — https://www.pexels.com/photo/close-up-shot-of-sunglasses-on-a-white-surface-6837219/
+  "deco-2": "/photos/deco-2.jpg",
 
   // Чёрная ацетатная оправа анфас крупным планом + черепаховая, светлый фон.
   // Фото: GlassesShop GS — https://www.pexels.com/photo/urban-chic-trendy-frames-for-everyday-look-28211037/

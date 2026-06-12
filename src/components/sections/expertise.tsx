@@ -14,6 +14,7 @@ import { Container } from "@/components/ui/container";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import { Reveal, RevealLines } from "@/components/ui/reveal";
 import { MotionFocus } from "@/components/ui/motion-focus";
+import { FloatFrame } from "@/components/ui/float-frame";
 import { expertise } from "@/content/home";
 import { EASE } from "@/lib/motion";
 
@@ -68,8 +69,26 @@ function Counter({ value, suffix }: { value: number; suffix: string }) {
 
 export default function Expertise() {
   return (
-    <Section id="expertise">
-      <Container>
+    <Section id="expertise" className="relative">
+      {/* Деко-оправа (точка Б): лежит в верхнем поле секции с лёгким
+          выпуском за левый край — по диагонали от водяного знака Сивцева.
+          Живёт в фокальной плоскости сайта (focal="scroll": резкая у
+          центра вьюпорта, мягчеет у кромок). Только desktop, z под
+          контентом, текст не пересекает (проверено на 1024–1920).
+          Точка А (стык манифеста и «Зрения») пуста: кадр не прошёл
+          нормализацию — эффекты без фотографий не строятся. */}
+      <FloatFrame
+        slot="deco-2"
+        rotate={-8}
+        parallaxSpeed={0.85}
+        entrance="focus"
+        focal="scroll"
+        sectionTone="offwhite"
+        sizes="15vw"
+        widthClass="w-[15vw]"
+        className="absolute left-[-4vw] top-2 z-0 hidden lg:block"
+      />
+      <Container className="relative z-10">
         <div className="grid grid-cols-1 gap-14 lg:grid-cols-2 lg:gap-20">
           <div className="max-w-md">
             <Reveal>
