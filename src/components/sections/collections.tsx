@@ -8,6 +8,7 @@ import {
   RevealLines,
 } from "@/components/ui/reveal";
 import { CardParallax } from "@/components/ui/card-parallax";
+import { FocalPlane } from "@/components/ui/focal-plane";
 import { MotionFocus } from "@/components/ui/motion-focus";
 import { Photo } from "@/components/ui/photo";
 import { collections } from "@/content/home";
@@ -68,17 +69,25 @@ export default function Collections() {
                       иначе конфликт transform */}
                   <div className="absolute inset-0 transition-transform duration-700 ease-soft group-hover:scale-105">
                     <CardParallax>
-                      <Photo
-                        slot={slots[i]}
-                        alt={c.title}
-                        label={c.label}
-                        sizes={sizes[i]}
-                      />
+                      {/* Фокальная плоскость — свой слой внутри параллакса:
+                          не hover-scale и не слой Focus Cards */}
+                      <FocalPlane className="absolute inset-0">
+                        <Photo
+                          slot={slots[i]}
+                          alt={c.title}
+                          label={c.label}
+                          sizes={sizes[i]}
+                        />
+                      </FocalPlane>
                     </CardParallax>
                   </div>
                   {/* Градиент усилен до from-ink/60: фото светлые, подписи
                       должны читаться поверх */}
                   <div className="absolute inset-0 bg-gradient-to-t from-ink/60 via-ink/0 to-transparent opacity-70 transition-opacity duration-500 group-hover:opacity-90" />
+                  {/* Каталожный ярлычок — музейная нумерация экспоната */}
+                  <span className="absolute right-4 top-4 rounded-full border border-paper/35 bg-ink/25 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.15em] text-paper backdrop-blur-sm">
+                    {c.catalog}
+                  </span>
                   <div className="absolute bottom-0 left-0 p-6 sm:p-8">
                     <span className="text-xs uppercase tracking-[0.2em] text-paper/70">
                       {c.meta}
@@ -86,6 +95,14 @@ export default function Collections() {
                     <h3 className="mt-1.5 font-serif text-2xl text-paper sm:text-3xl">
                       {c.title}
                     </h3>
+                    {/* CTA подъезжает из-под кромки на hover;
+                        на тач-устройствах виден статично */}
+                    <span className="mt-2.5 block overflow-hidden">
+                      <span className="flex translate-y-full items-center gap-2 text-xs uppercase tracking-[0.2em] text-paper transition-transform duration-300 ease-soft group-hover:translate-y-0 [@media(hover:none)]:translate-y-0">
+                        {collections.cta}
+                        <span aria-hidden>→</span>
+                      </span>
+                    </span>
                   </div>
                 </div>
               </a>

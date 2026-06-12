@@ -204,8 +204,11 @@ export default function BookingForm() {
         </label>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-        <div>
+      {/* form-focal/form-field — фокальная плоскость формы: активное поле
+          резкое, остальные приглушаются (globals.css; без blur — текст
+          в полях должен читаться) */}
+      <div className="form-focal grid grid-cols-1 gap-6 sm:grid-cols-2">
+        <div className="form-field">
           <label htmlFor="booking-name" className={labelClasses}>
             Имя *
           </label>
@@ -223,7 +226,7 @@ export default function BookingForm() {
           <FieldError id="booking-name-error" message={errors.name} />
         </div>
 
-        <div>
+        <div className="form-field">
           <label htmlFor="booking-phone" className={labelClasses}>
             Телефон *
           </label>
@@ -242,31 +245,55 @@ export default function BookingForm() {
           <FieldError id="booking-phone-error" message={errors.phone} />
         </div>
 
-        <div>
+        <div className="form-field">
           <label htmlFor="booking-service" className={labelClasses}>
             Услуга
           </label>
-          <select
-            id="booking-service"
-            value={values.service}
-            onChange={(e) => set("service")(e.target.value)}
-            className={cn(fieldClasses, !values.service && "text-paper/40")}
-          >
-            <option value="" className="bg-paper text-ink">
-              Выберите услугу
-            </option>
-            {services.items.map((s) => (
-              <option key={s.index} value={s.title} className="bg-paper text-ink">
-                {s.title}
+          {/* appearance-none + свой тонкий шеврон: нативная стрелка ОС
+              не из нашего мира */}
+          <div className="relative">
+            <select
+              id="booking-service"
+              value={values.service}
+              onChange={(e) => set("service")(e.target.value)}
+              className={cn(
+                fieldClasses,
+                "appearance-none pr-10",
+                !values.service && "text-paper/40"
+              )}
+            >
+              <option value="" className="bg-paper text-ink">
+                Выберите услугу
               </option>
-            ))}
-            <option value="Другое" className="bg-paper text-ink">
-              Другое
-            </option>
-          </select>
+              {services.items.map((s) => (
+                <option key={s.index} value={s.title} className="bg-paper text-ink">
+                  {s.title}
+                </option>
+              ))}
+              <option value="Другое" className="bg-paper text-ink">
+                Другое
+              </option>
+            </select>
+            <svg
+              width="12"
+              height="8"
+              viewBox="0 0 12 8"
+              fill="none"
+              aria-hidden="true"
+              className="pointer-events-none absolute right-4 top-1/2 mt-1 -translate-y-1/2 text-paper/60"
+            >
+              <path
+                d="M1 1.5 6 6.5 11 1.5"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
         </div>
 
-        <div>
+        <div className="form-field">
           <label htmlFor="booking-date" className={labelClasses}>
             Дата
           </label>

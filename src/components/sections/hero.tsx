@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { AnimatedLink } from "@/components/ui/animated-link";
 import { Magnetic } from "@/components/ui/magnetic";
 import { MotionFocus } from "@/components/ui/motion-focus";
+import { FocalPlane } from "@/components/ui/focal-plane";
 import { Photo } from "@/components/ui/photo";
 import { useIntroDone } from "@/components/ui/intro";
 import { hero } from "@/content/home";
@@ -54,6 +55,18 @@ export default function Hero() {
   const imageY = useTransform(scrollYProgress, [0, 1], [0, -60]);
   const hintOpacity = useTransform(scrollYProgress, [0, 0.06], [1, 0]);
 
+  // Прощальная хореография: при скролле прочь строки заголовка уезжают
+  // вверх на разных скоростях (параллакс глубины), подзаголовок и кнопки
+  // растворяются, фото чуть сжимается. Только transform/opacity.
+  const lineY0 = useTransform(scrollYProgress, [0, 1], [0, -108]); // ×0.9
+  const lineY1 = useTransform(scrollYProgress, [0, 1], [0, -120]); // ×1.0
+  const lineY2 = useTransform(scrollYProgress, [0, 1], [0, -132]); // ×1.1
+  const lineYs = [lineY0, lineY1, lineY2];
+  const farewellOpacity = useTransform(scrollYProgress, [0, 0.5], [1, 0]);
+  const exitScale = useTransform(scrollYProgress, [0, 1], [1, 0.97]);
+  // Боке-ореол едет вместе с фото, но медленнее (×0.6) — глубина света
+  const bokehY = useTransform(scrollYProgress, [0, 1], [0, -36]);
+
   return (
     <section
       ref={ref}
@@ -91,68 +104,120 @@ export default function Hero() {
                 animate={introDone ? "visible" : "hidden"}
                 className="block"
               >
-                {hero.titleLines.map((l) => (
-                  <span key={l} className="block overflow-hidden">
+                {/* Внешний span строки несёт прощальный y по скроллу,
+                    внутренний — масочное появление: транформы не дерутся */}
+                {hero.titleLines.map((l, i) => (
+                  <motion.span
+                    key={l}
+                    style={{ y: lineYs[i] }}
+                    className="block overflow-hidden"
+                  >
                     <motion.span variants={lineChild} className="block">
                       {l}
                     </motion.span>
-                  </span>
+                  </motion.span>
                 ))}
-                <span className="block overflow-hidden">
+                <motion.span
+                  style={{ y: lineYs[2] }}
+                  className="block overflow-hidden"
+                >
                   <motion.span
                     variants={lineChild}
                     className="block text-brand"
                   >
                     {hero.titleAccent}
                   </motion.span>
-                </span>
+                </motion.span>
               </motion.span>
             )}
           </h1>
           </MotionFocus>
 
-          <motion.p
-            initial={reduce ? false : { opacity: 0, y: 16 }}
-            animate={reduce ? {} : introDone ? { opacity: 1, y: 0 } : {}}
-            transition={{ duration: 0.8, ease: EASE, delay: 0.7 }}
-            className="mt-8 max-w-xl text-base leading-relaxed text-graphite sm:text-lg"
-          >
-            {hero.subtitle}
-          </motion.p>
+          {/* Обёртки прощания: opacity по скроллу живёт на родителе,
+              интро-анимация — на ребёнке (не делят свойство) */}
+          <motion.div style={reduce ? undefined : { opacity: farewellOpacity }}>
+            <motion.p
+              initial={reduce ? false : { opacity: 0, y: 16 }}
+              animate={reduce ? {} : introDone ? { opacity: 1, y: 0 } : {}}
+              transition={{ duration: 0.8, ease: EASE, delay: 0.7 }}
+              className="mt-8 max-w-xl text-base leading-relaxed text-graphite sm:text-lg"
+            >
+              {hero.subtitle}
+            </motion.p>
+          </motion.div>
 
-          <motion.div
-            initial={reduce ? false : { opacity: 0, y: 16 }}
-            animate={reduce ? {} : introDone ? { opacity: 1, y: 0 } : {}}
-            transition={{ duration: 0.8, ease: EASE, delay: 0.85 }}
-            className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-4"
-          >
-            <Magnetic>
-              <Button href={hero.primaryCta.href}>{hero.primaryCta.label}</Button>
-            </Magnetic>
-            <AnimatedLink href={hero.secondaryCta.href} className="text-sm">
-              {hero.secondaryCta.label}
-            </AnimatedLink>
+          <motion.div style={reduce ? undefined : { opacity: farewellOpacity }}>
+            <motion.div
+              initial={reduce ? false : { opacity: 0, y: 16 }}
+              animate={reduce ? {} : introDone ? { opacity: 1, y: 0 } : {}}
+              transition={{ duration: 0.8, ease: EASE, delay: 0.85 }}
+              className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-4"
+            >
+              <Magnetic>
+                <Button href={hero.primaryCta.href}>{hero.primaryCta.label}</Button>
+              </Magnetic>
+              <AnimatedLink href={hero.secondaryCta.href} className="text-sm">
+                {hero.secondaryCta.label}
+              </AnimatedLink>
+            </motion.div>
           </motion.div>
         </div>
 
         {/* Фото: одноразовое «наведение на резкость» + лёгкий параллакс.
             Кадр горизонтальный, поэтому пропорция 4:3 — оправа видна целиком. */}
         <div className="lg:col-span-5">
+          {/* Обёртка прощания: scale 1→0.97 по скроллу — отдельный слой,
+              не делит transform ни с параллаксом, ни с heroFocus */}
           <motion.div
-            style={reduce ? undefined : { y: imageY }}
-            variants={reduce ? undefined : heroFocus}
-            initial={reduce ? false : "hidden"}
-            animate={reduce ? undefined : introDone ? "visible" : "hidden"}
-            transition={{ duration: DURATION.slow, ease: EASE, delay: 0.25 }}
-            className="relative ml-auto aspect-[4/3] w-full max-w-lg overflow-hidden rounded-[2rem]"
+            style={reduce ? undefined : { scale: exitScale }}
+            className="relative ml-auto w-full max-w-lg"
           >
-            <Photo
-              slot="hero"
-              alt="Классическая оправа крупным планом на белом фоне"
-              label={hero.imageLabel}
-              priority
-              sizes="(min-width:1024px) 40vw, 90vw"
-            />
+            {/* Ambient bokeh: расфокусированный двойник фото как световой
+                ореол за предметом. Статичный blur (не анимируется), без
+                priority — LCP остаётся за резким фото. Боке — наша
+                физика, не свечение. */}
+            <motion.div
+              aria-hidden
+              style={reduce ? undefined : { y: bokehY }}
+              className="pointer-events-none absolute -inset-[10%] opacity-20 lg:opacity-30"
+            >
+              {/* Проявляется вместе с фото (после интро), не раньше */}
+              <motion.div
+                initial={reduce ? false : { opacity: 0 }}
+                animate={reduce ? undefined : introDone ? { opacity: 1 } : {}}
+                transition={{ duration: DURATION.slow, ease: EASE, delay: 0.35 }}
+                className="absolute inset-0 scale-[1.12] blur-[32px] saturate-[1.15] lg:blur-[48px]"
+                style={{
+                  maskImage:
+                    "radial-gradient(closest-side, #000 55%, transparent 100%)",
+                  WebkitMaskImage:
+                    "radial-gradient(closest-side, #000 55%, transparent 100%)",
+                }}
+              >
+                <Photo slot="hero" alt="" sizes="(min-width:1024px) 48vw, 100vw" />
+              </motion.div>
+            </motion.div>
+
+            <motion.div
+              style={reduce ? undefined : { y: imageY }}
+              variants={reduce ? undefined : heroFocus}
+              initial={reduce ? false : "hidden"}
+              animate={reduce ? undefined : introDone ? "visible" : "hidden"}
+              transition={{ duration: DURATION.slow, ease: EASE, delay: 0.25 }}
+              className="relative aspect-[4/3] w-full overflow-hidden rounded-[2rem]"
+            >
+              {/* Фокальная плоскость — отдельный слой, не дерётся с
+                  heroFocus-фильтром motion.div выше */}
+              <FocalPlane className="absolute inset-0">
+                <Photo
+                  slot="hero"
+                  alt="Классическая оправа крупным планом на белом фоне"
+                  label={hero.imageLabel}
+                  priority
+                  sizes="(min-width:1024px) 40vw, 90vw"
+                />
+              </FocalPlane>
+            </motion.div>
           </motion.div>
         </div>
       </Container>

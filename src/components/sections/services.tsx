@@ -33,7 +33,7 @@ function ArrowRight() {
 
 function Row({ item }: { item: Item }) {
   return (
-    <div className="group -mx-4 rounded-xl px-4 transition-[background-color,transform] duration-500 ease-soft hover:bg-ink/[0.03] active:scale-[0.985]">
+    <div className="focus-item group -mx-4 rounded-xl px-4 transition-[background-color,transform] duration-500 ease-soft hover:bg-ink/[0.03] active:scale-[0.985]">
       <div className="flex items-start gap-6 border-b border-line py-8 sm:gap-10 sm:py-10">
         <span className="mt-1.5 font-sans text-sm tabular-nums text-graphite transition-colors duration-300 group-hover:text-brand-deep">
           {item.index}
@@ -64,20 +64,27 @@ export default function Services() {
 
   return (
     <Section id="services">
-      <Container>
-        <div className="mb-16 max-w-2xl sm:mb-20">
-          <Reveal>
-            <Eyebrow>{services.eyebrow}</Eyebrow>
-          </Reveal>
-          <MotionFocus>
-            <h2 className="mt-6 font-serif text-display-md font-light leading-[1.05] text-ink">
-              <RevealLines text={services.heading} />
-            </h2>
-          </MotionFocus>
+      <Container className="lg:grid lg:grid-cols-12 lg:gap-8">
+        {/* Sticky-интро (desktop): шапка секции остаётся на месте,
+            пока список услуг скроллится мимо */}
+        <div className="lg:col-span-5">
+          <div className="mb-16 max-w-2xl sm:mb-20 lg:sticky lg:top-32 lg:mb-0">
+            <Reveal>
+              <Eyebrow>{services.eyebrow}</Eyebrow>
+            </Reveal>
+            <MotionFocus>
+              <h2 className="mt-6 font-serif text-display-md font-light leading-[1.05] text-ink">
+                <RevealLines text={services.heading} />
+              </h2>
+            </MotionFocus>
+          </div>
         </div>
 
+        {/* focus-list/focus-item — фокус-идиома: наведённая строка резкая,
+            соседи отступают (globals.css, только hover-устройства) */}
+        <div className="lg:col-span-7">
         {reduce ? (
-          <ul className="border-t border-line">
+          <ul className="focus-list border-t border-line">
             {services.items.map((s) => (
               <li key={s.index}>
                 <Row item={s} />
@@ -90,7 +97,7 @@ export default function Services() {
             initial="hidden"
             whileInView="visible"
             viewport={VIEWPORT}
-            className="border-t border-line"
+            className="focus-list border-t border-line"
           >
             {services.items.map((s) => (
               <motion.li key={s.index} variants={fadeUp}>
@@ -99,6 +106,7 @@ export default function Services() {
             ))}
           </motion.ul>
         )}
+        </div>
       </Container>
     </Section>
   );

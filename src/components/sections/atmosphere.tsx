@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 import { motion, useReducedMotion, useScroll, useTransform } from "motion/react";
+import { FocalPlane } from "@/components/ui/focal-plane";
 import { Photo } from "@/components/ui/photo";
 import { PHOTOS } from "@/content/photos";
 import { atmosphere } from "@/content/home";
@@ -34,11 +35,14 @@ export default function Atmosphere() {
         style={reduce ? undefined : { scale, y }}
         className="absolute inset-0"
       >
-        <Photo
-          slot="interior"
-          alt="Интерьер салона оптики «Оптимист»: стена с оправами в тёплом свете"
-          sizes="100vw"
-        />
+        {/* Фокальная плоскость — отдельный слой внутри transform-слоя */}
+        <FocalPlane className="absolute inset-0">
+          <Photo
+            slot="interior"
+            alt="Интерьер салона оптики «Оптимист»: стена с оправами в тёплом свете"
+            sizes="100vw"
+          />
+        </FocalPlane>
       </motion.div>
 
       {/* Подпись-капсула: стиль единый с капсулами слайдера «Зрение» */}

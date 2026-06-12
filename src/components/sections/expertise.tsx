@@ -20,6 +20,8 @@ import { EASE } from "@/lib/motion";
 /**
  * Счётчик без ререндеров: motion-значение пишется напрямую в DOM
  * через <motion.span>{display}</motion.span> — React не участвует в кадрах.
+ * По достижении значения — финальный микро-pop (scale 1→1.04→1, spring,
+ * один раз). Reduced-motion: число сразу, без пробега и без pop.
  */
 function Counter({ value, suffix }: { value: number; suffix: string }) {
   const ref = useRef<HTMLSpanElement>(null);
@@ -37,11 +39,31 @@ function Counter({ value, suffix }: { value: number; suffix: string }) {
       raw.set(value);
       return;
     }
-    const controls = animate(raw, value, { duration: 1.6, ease: EASE });
+    const controls = animate(raw, value, {
+      duration: 1.6,
+      ease: EASE,
+      onComplete: () => {
+        const el = ref.current;
+        if (!el) return;
+        animate(el, { scale: 1.04 }, { type: "spring", stiffness: 380, damping: 14 }).then(
+          () => {
+            animate(el, { scale: 1 }, { type: "spring", stiffness: 260, damping: 20 });
+          }
+        );
+      },
+    });
     return () => controls.stop();
   }, [inView, value, reduce, raw]);
 
-  return <motion.span ref={ref}>{display}</motion.span>;
+  return (
+    <motion.span
+      ref={ref}
+      className="inline-block"
+      style={{ transformOrigin: "left bottom" }}
+    >
+      {display}
+    </motion.span>
+  );
 }
 
 export default function Expertise() {
@@ -65,17 +87,29 @@ export default function Expertise() {
             </Reveal>
           </div>
 
-          <div className="grid grid-cols-2 gap-x-8 gap-y-12">
-            {expertise.stats.map((s) => (
-              <Reveal key={s.label}>
-                <div className="border-t border-line pt-5">
-                  <div className="font-serif text-6xl font-light tabular-nums text-ink sm:text-7xl">
-                    <Counter value={s.value} suffix={s.suffix} />
+          <div className="relative">
+            {/* Водяной знак экспертизы — таблица Сивцева («Ш Б / М Н К»):
+                типографический мотив кабинета окулиста, на грани видимости */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute -inset-x-4 -top-14 hidden select-none text-center font-serif leading-none text-ink/[0.03] lg:block"
+            >
+              <span className="block text-[10rem] tracking-[0.18em]">ШБ</span>
+              <span className="mt-4 block text-[6.5rem] tracking-[0.32em]">МНК</span>
+            </div>
+
+            <div className="relative grid grid-cols-2 gap-x-8 gap-y-12">
+              {expertise.stats.map((s) => (
+                <Reveal key={s.label}>
+                  <div className="border-t border-line pt-5">
+                    <div className="font-serif text-6xl font-light tabular-nums text-ink sm:text-7xl">
+                      <Counter value={s.value} suffix={s.suffix} />
+                    </div>
+                    <div className="mt-3 text-sm text-graphite">{s.label}</div>
                   </div>
-                  <div className="mt-3 text-sm text-graphite">{s.label}</div>
-                </div>
-              </Reveal>
-            ))}
+                </Reveal>
+              ))}
+            </div>
           </div>
         </div>
       </Container>

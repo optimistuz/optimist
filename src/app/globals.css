@@ -39,6 +39,26 @@ body {
   color: #ffffff;
 }
 
+/* Тонкий скроллбар: полоса 8px, бегунок ink/20 → ink/40 на hover */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(13, 13, 13, 0.2) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(13, 13, 13, 0.2);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(13, 13, 13, 0.4);
+}
+
 /* Отступ для якорной навигации под фиксированным хедером */
 :where(section[id], div[id]) {
   scroll-margin-top: 6rem;
@@ -113,11 +133,65 @@ html.lenis body {
 }
 
 /* ============================================================
+   ФОКУС-ИДИОМА: выбранное резко, остальное отступает
+   (blur ≤ 1px на соседях, только устройства с настоящим hover)
+   ============================================================ */
+
+/* Страница за мобильным меню: лёгкое сжатие (расфокус — на оверлее) */
+.page-shell {
+  transition: transform 400ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.menu-open .page-shell {
+  transform: scale(0.985);
+}
+
+/* Списки (услуги, салоны): наведённая строка резкая, соседи отступают */
+.focus-item {
+  transition: opacity 300ms ease, filter 300ms ease;
+}
+/* Класс висит на ВНУТРЕННЕМ элементе строки (не на motion-элементе
+   появления: тот несёт inline-opacity от fadeUp и переспорил бы CSS) */
+@media (hover: hover) {
+  .focus-list:hover .focus-item:not(:hover) {
+    opacity: 0.45;
+    filter: blur(1px);
+  }
+}
+
+/* Лента брендов: на паузе наведённый бренд резкий, остальные отступают */
+.animate-marquee span {
+  transition: color 300ms ease, opacity 300ms ease, filter 300ms ease;
+}
+@media (hover: hover) {
+  .marquee-group:hover .animate-marquee span:not(:hover) {
+    opacity: 0.35;
+    filter: blur(1px);
+  }
+}
+
+/* Фокальная плоскость формы: активное поле резкое, остальные приглушены
+   (БЕЗ blur — вводимый текст должен читаться) */
+.form-field {
+  transition: opacity 300ms ease;
+}
+.form-focal:focus-within .form-field:not(:focus-within) {
+  opacity: 0.55;
+}
+
+/* ============================================================
    ДОСТУПНОСТЬ: уважаем «уменьшить движение»
    ============================================================ */
 @media (prefers-reduced-motion: reduce) {
   .animate-marquee {
     animation: none;
+  }
+  /* Фокус-идиома при reduced-motion: без blur и без сжатия страницы */
+  .menu-open .page-shell {
+    transform: none;
+  }
+  .focus-list:hover .focus-item:not(:hover),
+  .marquee-group:hover .animate-marquee span:not(:hover) {
+    filter: none;
   }
   *,
   *::before,

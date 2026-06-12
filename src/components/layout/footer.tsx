@@ -1,6 +1,7 @@
 import { Container } from "@/components/ui/container";
 import { Logo } from "@/components/ui/logo";
 import { AnimatedLink } from "@/components/ui/animated-link";
+import { OpenStatusBadge } from "@/components/ui/open-status";
 import { Reveal } from "@/components/ui/reveal";
 import { nav, salons, site, socials } from "@/content/home";
 
@@ -74,6 +75,9 @@ export default function Footer() {
               </li>
               <li className="pt-2 text-graphite">{site.hours.weekdays}</li>
               <li className="text-graphite">{site.hours.weekend}</li>
+              <li className="pt-2">
+                <OpenStatusBadge />
+              </li>
             </ul>
           </address>
 
@@ -105,6 +109,10 @@ export default function Footer() {
         <div className="mt-16 flex flex-col gap-2 border-t border-line pt-8 text-xs text-graphite sm:flex-row sm:items-center sm:justify-between">
           <p>© {year} «Оптимист». Все права защищены.</p>
           <p>Ташкент, Узбекистан</p>
+          {/* Lenis перехватывает якорь и плавно везёт к началу */}
+          <AnimatedLink href="#hero" className="text-xs">
+            Наверх ↑
+          </AnimatedLink>
         </div>
       </Container>
     </footer>

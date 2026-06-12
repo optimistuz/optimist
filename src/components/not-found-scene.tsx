@@ -153,10 +153,22 @@ export default function NotFoundScene() {
         />
       </svg>
 
-      <h1 className="mt-10 font-serif text-display-lg font-light text-ink">404</h1>
-      <p className="mt-4 max-w-md text-base leading-relaxed text-graphite sm:text-lg">
-        Эта страница потерялась из виду{/* TODO: согласовать текст */}
-      </p>
+      {/* Типографика таблицы Сивцева: строки убывающим кеглем, как в
+          кабинете окулиста — нижнюю видно «на грани чтения» */}
+      <h1 className="mt-10 font-serif font-light leading-none text-ink">
+        <span className="block text-display-lg">404</span>
+        <span aria-hidden className="mt-6 block text-3xl uppercase tracking-[0.3em] sm:text-4xl">
+          Страница
+        </span>
+        <span aria-hidden className="mt-4 block text-xl uppercase tracking-[0.35em] text-ink/80 sm:text-2xl">
+          Потерялась
+        </span>
+        <span aria-hidden className="mt-4 block text-xs uppercase tracking-[0.4em] text-graphite sm:text-sm">
+          Из виду
+        </span>
+        <span className="sr-only">Страница потерялась из виду</span>
+        {/* TODO: согласовать текст */}
+      </h1>
       <div className="mt-10">
         <Magnetic>
           <Button href="/">Вернуться к ясности</Button>

@@ -95,7 +95,16 @@ export default function SmoothScroll({
       }
       e.preventDefault();
       if (instance) {
-        instance.scrollTo(targetEl as HTMLElement, { offset: -80 });
+        // По прибытии — фокус-пульс заголовка целевой секции (MotionFocus
+        // слушает anchor-arrive). При reduced-motion Lenis нет — пульса нет.
+        instance.scrollTo(targetEl as HTMLElement, {
+          offset: -80,
+          onComplete: () => {
+            window.dispatchEvent(
+              new CustomEvent("anchor-arrive", { detail: hash.slice(1) })
+            );
+          },
+        });
       } else {
         (targetEl as HTMLElement).scrollIntoView({ block: "start" });
       }

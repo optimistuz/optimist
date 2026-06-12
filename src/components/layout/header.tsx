@@ -62,6 +62,13 @@ export default function Header() {
     return () => io.disconnect();
   }, []);
 
+  // Фокус-идиома: страница за меню уходит в расфокус и слегка сжимается
+  // (класс на <html> — page-shell живёт в layout, transform в globals.css)
+  useEffect(() => {
+    document.documentElement.classList.toggle("menu-open", open);
+    return () => document.documentElement.classList.remove("menu-open");
+  }, [open]);
+
   // Блокируем скролл фона и закрываем меню по Escape.
   // Lenis останавливаем явно; body.overflow остаётся страховкой для
   // reduced-motion-режима, где Lenis не создаётся.
@@ -84,8 +91,9 @@ export default function Header() {
     <header
       className={cn(
         "fixed inset-x-0 top-0 z-50 transition-all duration-[400ms] ease-soft",
+        // Стеклянная шапка: мир расфокусируется за ней (идиома фокуса)
         scrolled || open
-          ? "border-b border-line bg-offwhite shadow-[0_6px_24px_-14px_rgba(13,13,13,0.18)]"
+          ? "border-b border-line bg-offwhite/70 shadow-[0_6px_24px_-14px_rgba(13,13,13,0.18)] backdrop-blur-md"
           : "border-b border-transparent bg-offwhite/0",
         // Прячемся только при закрытом меню; focus-within возвращает шапку
         // при табе с клавиатуры
@@ -160,7 +168,7 @@ export default function Header() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.4, ease: EASE }}
-            className="fixed inset-0 z-40 flex flex-col bg-offwhite lg:hidden"
+            className="fixed inset-0 z-40 flex flex-col bg-offwhite/40 backdrop-blur-[6px] motion-reduce:bg-offwhite/90 motion-reduce:backdrop-blur-none lg:hidden"
           >
             <nav
               aria-label="Мобильная навигация"

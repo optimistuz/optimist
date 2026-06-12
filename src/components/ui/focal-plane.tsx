@@ -1,0 +1,73 @@
+"use client";
+
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  motion,
+  useMotionTemplate,
+  useReducedMotion,
+  useScroll,
+  useSpring,
+  useTransform,
+} from "motion/react";
+
+/**
+ * Фокальная плоскость страницы: изображение резкое в центре вьюпорта
+ * и мягчеет к кромкам (blur 0 → max ≤ 3px) — страница ведёт себя как
+ * оптика с малой глубиной резкости.
+ *
+ * Активна только при (pointer: fine) И ширине ≥1024px И выключенном
+ * reduced-motion; иначе прозрачный рендер без эффекта.
+ *
+ * ВАЖНО: это отдельный слой только вокруг изображения. Не вешать на
+ * элементы с hover-скейлом, параллаксом или собственным filter
+ * (Focus Cards, шторки симуляторов, чертёж анатомии).
+ */
+export function FocalPlane({
+  children,
+  className,
+  max = 3,
+}: {
+  children: ReactNode;
+  className?: string;
+  /** Максимальный blur у кромок вьюпорта, px (бюджет: ≤ 3). */
+  max?: number;
+}) {
+  const reduce = useReducedMotion();
+  const [active, setActive] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(pointer: fine) and (min-width: 1024px)");
+    const update = () => setActive(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  const { scrollYProgress } = useScroll({
+    target: ref,
+    offset: ["start end", "end start"],
+  });
+  // |p − 0.5| × 2: 0 — центр элемента в центре вьюпорта, 1 — у кромки
+  const blur = useTransform(scrollYProgress, (p) => Math.abs(p - 0.5) * 2 * max);
+  const smooth = useSpring(blur, { stiffness: 140, damping: 32 });
+  const filter = useMotionTemplate`blur(${smooth}px)`;
+
+  if (reduce || !active) {
+    return (
+      <div ref={ref} className={className}>
+        {children}
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      ref={ref}
+      style={{ filter, willChange: "filter" }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
+}

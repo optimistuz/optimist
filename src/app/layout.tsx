@@ -150,8 +150,12 @@ export default function RootLayout({
         <IntroProvider>
           <SmoothScroll>
             <Header />
-            <main>{children}</main>
-            <Footer />
+            {/* page-shell слегка сжимается за открытым мобильным меню
+                (фокус-идиома); шапка и оверлеи остаются снаружи */}
+            <div className="page-shell">
+              <main>{children}</main>
+              <Footer />
+            </div>
           </SmoothScroll>
         </IntroProvider>
         {/* Dev-инструмент выбора дисплейного шрифта; в prod-сборку не попадает */}

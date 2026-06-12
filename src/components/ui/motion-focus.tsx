@@ -1,19 +1,28 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
+  animate,
   motion,
   useMotionTemplate,
+  useMotionValue,
   useReducedMotion,
   useSpring,
   useTransform,
 } from "motion/react";
 import { useScrollVelocity } from "@/components/smooth-scroll";
+import { EASE } from "@/lib/motion";
 
 /**
  * Velocity-резкость: display-заголовок слегка «плывёт» (blur ≤ 2px)
  * при быстром скролле и мгновенно наводится на резкость при остановке —
  * сайт ведёт себя как зрение.
+ *
+ * Плюс якорный фокус-пульс: когда Lenis доехал до секции по якорю
+ * (событие anchor-arrive из smooth-scroll), заголовок целевой секции
+ * один раз наводится на резкость (blur 3px → 0, ~600 мс). Пульс идёт
+ * через ТОТ ЖЕ MotionValue фильтра (берём максимум двух источников) —
+ * второго filter на элементе не появляется, конфликта с velocity нет.
  *
  * Активен только при (pointer: fine) И ширине ≥1024px И выключенном
  * reduced-motion; во всех остальных случаях — прозрачный рендер без эффекта.
@@ -30,6 +39,7 @@ export function MotionFocus({
 }) {
   const reduce = useReducedMotion();
   const [active, setActive] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const mq = window.matchMedia("(pointer: fine) and (min-width: 1024px)");
@@ -43,14 +53,36 @@ export function MotionFocus({
   // |velocity| ≥ 30 → blur 2px; в покое → 0 (useTransform клампит диапазон)
   const blur = useTransform(velocity, [-30, 0, 30], [2, 0, 2]);
   const smooth = useSpring(blur, { stiffness: 250, damping: 40 });
-  const filter = useMotionTemplate`blur(${smooth}px)`;
+
+  // Якорный пульс: 3px → 0 (бюджет ночи: анимируемый blur ≤ 3px)
+  const pulse = useMotionValue(0);
+  const combined = useTransform([smooth, pulse] as const, (latest) =>
+    Math.max(latest[0] as number, latest[1] as number)
+  );
+  const filter = useMotionTemplate`blur(${combined}px)`;
+
+  useEffect(() => {
+    if (reduce || !active) return;
+    const onArrive = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      const host = ref.current;
+      if (!id || !host) return;
+      const target = host.closest("section[id], div[id], footer[id]");
+      if (target && target.id === id) {
+        pulse.set(3);
+        animate(pulse, 0, { duration: 0.6, ease: EASE });
+      }
+    };
+    window.addEventListener("anchor-arrive", onArrive);
+    return () => window.removeEventListener("anchor-arrive", onArrive);
+  }, [reduce, active, pulse]);
 
   if (reduce || !active) {
     return <div className={className}>{children}</div>;
   }
 
   return (
-    <motion.div style={{ filter }} className={className}>
+    <motion.div ref={ref} style={{ filter }} className={className}>
       {children}
     </motion.div>
   );

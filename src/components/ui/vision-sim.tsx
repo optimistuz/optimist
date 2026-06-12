@@ -238,6 +238,13 @@ export function VisionSim({
     };
   }, [nudge, inView, reduce, position]);
 
+  // ---- Модальность фокуса: красное кольцо — только клавиатуре ------
+  // Браузерная эвристика :focus-visible иногда считает программный
+  // focus() при drag клавиатурным, и кольцо вспыхивало красными
+  // полосами по бокам линии. Модальность ведём сами.
+  const focusFromPointer = useRef(false);
+  const [kbFocus, setKbFocus] = useState(false);
+
   // ---- Указатель: drag/клик в любом месте кадра --------------------
   const dragging = useRef(false);
   const setFromClientX = (clientX: number) => {
@@ -250,7 +257,10 @@ export function VisionSim({
     markTouched();
     e.currentTarget.setPointerCapture(e.pointerId);
     setFromClientX(e.clientX);
+    focusFromPointer.current = true;
     handleRef.current?.focus({ preventScroll: true });
+    focusFromPointer.current = false;
+    setKbFocus(false); // линия уже была в фокусе — указатель гасит кольцо
   };
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (dragging.current) setFromClientX(e.clientX);
@@ -276,6 +286,7 @@ export function VisionSim({
     if (next === null) return;
     e.preventDefault();
     markTouched();
+    setKbFocus(true); // переход на клавиатуру возвращает кольцо
     moveToStep(clampAbs(next));
   };
 
@@ -356,7 +367,15 @@ export function VisionSim({
           aria-valuenow={ariaNow}
           aria-valuetext={formatValueText(value, signDisplay)}
           onKeyDown={onKeyDown}
-          className="absolute inset-y-0 z-10 -ml-px w-px bg-paper/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+          onFocus={() => {
+            setKbFocus(!focusFromPointer.current);
+            focusFromPointer.current = false;
+          }}
+          onBlur={() => setKbFocus(false)}
+          className={cn(
+            "absolute inset-y-0 z-10 -ml-px w-px bg-paper/60 outline-none",
+            kbFocus && "ring-2 ring-brand"
+          )}
           style={{ left, touchAction: "none" }}
         >
           <span className="absolute left-1/2 top-1/2 flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-ink/15 bg-paper shadow-[0_2px_10px_-4px_rgba(13,13,13,0.3)]">
