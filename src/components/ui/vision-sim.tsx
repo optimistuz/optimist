@@ -351,7 +351,9 @@ export function VisionSim({
           style={{
             clipPath,
             filter: `blur(${blur.toFixed(2)}px) saturate(${saturate.toFixed(3)})`,
-            transition: reduce ? "none" : "filter 180ms ease-out",
+            // Длительность обнуляется глобальным reduced-motion-сбросом
+            // (globals.css) — не ветвим по reduce, чтобы не было SSR-mismatch
+            transition: "filter 180ms ease-out",
             willChange: "filter",
             ...(depthMask
               ? { maskImage: DEPTH_MASK, WebkitMaskImage: DEPTH_MASK }

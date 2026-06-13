@@ -169,6 +169,18 @@ html.lenis body {
   opacity: 0.55;
 }
 
+/* «Шкала наводки» (SectionRail): при наведении на шкалу засечка под курсором
+   резкая, соседние отступают (та же фокус-идиома, что у лент и списков) */
+.rail-item {
+  transition: opacity 300ms ease, filter 300ms ease;
+}
+@media (hover: hover) {
+  .rail-list:hover .rail-item:not(:hover) {
+    opacity: 0.4;
+    filter: blur(1px);
+  }
+}
+
 /* ============================================================
    ДОСТУПНОСТЬ: уважаем «уменьшить движение»
    ============================================================ */
@@ -179,7 +191,8 @@ html.lenis body {
     transform: none;
   }
   .focus-list:hover .focus-item:not(:hover),
-  .marquee-group:hover .marquee-track span:not(:hover) {
+  .marquee-group:hover .marquee-track span:not(:hover),
+  .rail-list:hover .rail-item:not(:hover) {
     filter: none;
   }
   *,

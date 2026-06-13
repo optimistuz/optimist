@@ -49,11 +49,24 @@ export const focusIn: Variants = {
   },
 };
 
-/** Заголовки: строка выезжает из-под маски (родитель — overflow-hidden). */
+/**
+ * Заголовки: строка выезжает из-под маски (родитель — overflow-hidden).
+ * Доп. ось «наведения резкости» (B1): оптический размер доводится 20 → 72 —
+ * при вариативном дисплейном шрифте с осью opsz (Literata) строка оптически
+ * «резкостится» по мере оседания. Статичные шрифты (Cormorant/Prata) и Jost
+ * (без opsz) игнорируют font-variation-settings — без вреда.
+ */
 export const maskLineChild: Variants = {
-  hidden: { y: "110%" },
-  visible: { y: "0%", transition: { duration: 0.9, ease: EASE } },
-};
+  // --opsz анимируем числом (motion интерполирует CSS-переменную надёжно;
+  // сам fontVariationSettings motion не анимирует). Строка читает его через
+  // style: font-variation-settings: "opsz" var(--opsz).
+  hidden: { y: "110%", "--opsz": 20 },
+  visible: {
+    y: "0%",
+    "--opsz": 72,
+    transition: { duration: 0.9, ease: EASE },
+  },
+} as Variants;
 
 /** Изображения: scale + opacity, БЕЗ blur (цена фильтра на мобильном GPU). */
 export const imageReveal: Variants = {

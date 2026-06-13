@@ -1,6 +1,7 @@
 "use client";
 
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
+import { useReduceAfterMount } from "@/lib/use-reduce-after-mount";
 import { Section } from "@/components/ui/section";
 import { Container } from "@/components/ui/container";
 import { Eyebrow } from "@/components/ui/eyebrow";
@@ -60,7 +61,7 @@ function Row({ item }: { item: Item }) {
 }
 
 export default function Services() {
-  const reduce = useReducedMotion();
+  const reduce = useReduceAfterMount();
 
   return (
     <Section id="services">

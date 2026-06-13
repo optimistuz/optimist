@@ -32,6 +32,8 @@ export function Section({
   return (
     <section
       id={id}
+      // Тёмный фон (ink) — «Шкала наводки» над ним инвертируется в светлую
+      data-rail-invert={tone === "ink" ? "" : undefined}
       className={cn("py-24 sm:py-32 lg:py-40", tones[tone], className)}
     >
       {tone === "paper" && <DrawnBorder />}

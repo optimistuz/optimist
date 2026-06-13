@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { useReducedMotion } from "motion/react";
+import { useReduceAfterMount } from "@/lib/use-reduce-after-mount";
 import { Section } from "@/components/ui/section";
 import { Container } from "@/components/ui/container";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import { Reveal, RevealLines } from "@/components/ui/reveal";
 import { MotionFocus } from "@/components/ui/motion-focus";
 import TempleNumbers from "@/components/ui/temple-numbers";
+import LensThickness from "@/components/ui/lens-thickness";
 import { faq } from "@/content/home";
 
 // Индекс пункта с живым ответом «цифры на дужке» (см. Блок 6)
@@ -109,7 +110,7 @@ function FaqItem({
 }
 
 export default function Faq() {
-  const reduce = !!useReducedMotion();
+  const reduce = useReduceAfterMount();
   const [open, setOpen] = useState<number | null>(null);
 
   const jsonLd = {
@@ -158,6 +159,11 @@ export default function Faq() {
                   <div>
                     <p className="mb-6 max-w-2xl">{item.a}</p>
                     <TempleNumbers />
+                  </div>
+                ) : item.live === "lens" ? (
+                  <div>
+                    <p className="mb-6 max-w-2xl">{item.a}</p>
+                    <LensThickness />
                   </div>
                 ) : undefined}
               </FaqItem>

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
+import { useReduceAfterMount } from "@/lib/use-reduce-after-mount";
 import { Section } from "@/components/ui/section";
 import { Container } from "@/components/ui/container";
 import { Eyebrow } from "@/components/ui/eyebrow";
@@ -224,7 +225,7 @@ function RadioCards({
 }
 
 export default function FitQuiz() {
-  const reduce = !!useReducedMotion();
+  const reduce = useReduceAfterMount();
   const total = fitQuiz.steps.length;
   // view: 0..total-1 — шаги; total — экран результата
   const [view, setView] = useState(0);

@@ -5,12 +5,12 @@ import {
   AnimatePresence,
   easeInOut,
   motion,
-  useReducedMotion,
   useScroll,
   useTransform,
   type MotionValue,
   type Variants,
 } from "motion/react";
+import { useReduceAfterMount } from "@/lib/use-reduce-after-mount";
 import { Section } from "@/components/ui/section";
 import { Container } from "@/components/ui/container";
 import { Eyebrow } from "@/components/ui/eyebrow";
@@ -378,7 +378,7 @@ function PartGroup({
 }
 
 export default function Anatomy() {
-  const reduce = !!useReducedMotion();
+  const reduce = useReduceAfterMount();
   // hovered — временный фокус (мышь/клавиатура), pinned — закреплённый кликом/тапом
   const [hovered, setHovered] = useState<number | null>(null);
   const [pinned, setPinned] = useState<number | null>(null);

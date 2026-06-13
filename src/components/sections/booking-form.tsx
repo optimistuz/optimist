@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
 import { Button } from "@/components/ui/button";
+import { useReduceAfterMount } from "@/lib/use-reduce-after-mount";
 import { Magnetic } from "@/components/ui/magnetic";
-import { services, fitQuiz } from "@/content/home";
+import { services, fitQuiz, salons, ctaBlock } from "@/content/home";
 import { EASE } from "@/lib/motion";
 import { cn } from "@/lib/cn";
 
@@ -14,10 +15,17 @@ type FormValues = {
   name: string;
   phone: string;
   service: string;
+  salon: string;
   date: string;
 };
 
-const EMPTY: FormValues = { name: "", phone: "", service: "", date: "" };
+const EMPTY: FormValues = {
+  name: "",
+  phone: "",
+  service: "",
+  salon: "",
+  date: "",
+};
 
 // Связка с квизом «Подбор»: форма читает свежий результат из localStorage.
 type FitData = {
@@ -65,6 +73,85 @@ async function sendBooking(values: FormValues, extras: string[]): Promise<void> 
   void [values, extras]; // данные формы и доп. строки уйдут в реальный канал
   // Имитация сетевого запроса
   await new Promise((resolve) => setTimeout(resolve, 1200));
+}
+
+/** «2026-06-14» → «14 июня 2026 г.» (ru-RU). Парсим как локальную дату. */
+function formatDateRu(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("ru-RU", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+/** Ссылка на Яндекс.Карты по адресу салона. */
+const mapHrefFor = (address: string) =>
+  "https://yandex.uz/maps/?text=" + encodeURIComponent(`${address}, Ташкент`);
+
+/** Экранирование значений iCalendar (RFC 5545). */
+const icsEscape = (s: string) =>
+  s
+    .replace(/\\/g, "\\\\")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,")
+    .replace(/\n/g, "\\n");
+
+/**
+ * Сборка и скачивание .ics на клиенте (по клику — Date/Blob/URL доступны).
+ * Событие на весь день выбранной даты: точное время подтверждаем по телефону.
+ */
+function downloadIcs({
+  date,
+  summary,
+  location,
+  description,
+}: {
+  date: string;
+  summary: string;
+  location: string;
+  description: string;
+}) {
+  const start = new Date(date + "T00:00:00");
+  if (Number.isNaN(start.getTime())) return;
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const ymd = (d: Date) =>
+    `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+  const stamp = new Date()
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}/, "");
+  const ics = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Optimist//Booking//RU",
+    "CALSCALE:GREGORIAN",
+    "BEGIN:VEVENT",
+    `UID:optimist-${ymd(start)}-${start.getTime()}@optimist.uz`,
+    `DTSTAMP:${stamp}`,
+    `DTSTART;VALUE=DATE:${ymd(start)}`,
+    `DTEND;VALUE=DATE:${ymd(end)}`,
+    `SUMMARY:${icsEscape(summary)}`,
+    location ? `LOCATION:${icsEscape(location)}` : "",
+    `DESCRIPTION:${icsEscape(description)}`,
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ]
+    .filter(Boolean)
+    .join("\r\n");
+  const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "optimist-priem.ics";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 const fieldBase =
@@ -145,7 +232,7 @@ function CheckIcon({ reduce }: { reduce: boolean }) {
  * Ошибки появляются после первой попытки отправки, дальше — живые.
  */
 export default function BookingForm() {
-  const reduce = useReducedMotion();
+  const reduce = useReduceAfterMount();
   const [values, setValues] = useState<FormValues>(EMPTY);
   const [honeypot, setHoneypot] = useState("");
   const [status, setStatus] = useState<Status>("idle");
@@ -237,6 +324,7 @@ export default function BookingForm() {
         `Подбор из квиза: ${faceLabelOf(fit.face).toLowerCase()} · ${fit.recommendation}`
       );
     }
+    if (values.salon) extras.push(`Салон: ${values.salon}`);
     if (timePref) extras.push(`Удобное время: ${timePref}`);
 
     setStatus("submitting");
@@ -254,35 +342,105 @@ export default function BookingForm() {
   };
 
   if (status === "success") {
+    const c = ctaBlock.confirm;
+    const firstName = values.name.trim().split(/\s+/)[0];
+    const chosenSalon = salons.find((s) => s.address === values.salon);
+    // Сводка заявки — только заполненные строки
+    const summaryRows: { label: string; value: string }[] = [];
+    if (values.service)
+      summaryRows.push({ label: c.labels.service, value: values.service });
+    if (values.date)
+      summaryRows.push({ label: c.labels.date, value: formatDateRu(values.date) });
+    if (timePref) summaryRows.push({ label: c.labels.time, value: timePref });
+    if (values.salon)
+      summaryRows.push({ label: c.labels.salon, value: values.salon });
+    if (fitApplied && fit)
+      summaryRows.push({
+        label: c.labels.fit,
+        value: `${faceLabelOf(fit.face).toLowerCase()} · ${fit.recommendation}`,
+      });
+
+    const addToCalendar = () =>
+      downloadIcs({
+        date: values.date,
+        summary: c.event,
+        location: values.salon ? `${values.salon}, Ташкент` : "«Оптимист», Ташкент",
+        description: [
+          values.service && `Услуга: ${values.service}`,
+          timePref && `Удобнее: ${timePref}`,
+          c.eventNote,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      });
+
     return (
       <motion.div
-        initial={reduce ? false : { opacity: 0, y: 16 }}
-        animate={reduce ? {} : { opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, ease: EASE }}
+        // «Наводится на резкость»: подтверждение проявляется из расфокуса (A1)
+        initial={reduce ? false : { opacity: 0, filter: "blur(8px)" }}
+        animate={reduce ? {} : { opacity: 1, filter: "blur(0px)" }}
+        transition={{ duration: 0.7, ease: EASE }}
         className="flex h-full min-h-[20rem] flex-col items-start justify-center"
         role="status"
       >
         <CheckIcon reduce={Boolean(reduce)} />
-        {/* Текст подъезжает пружиной после прорисовки знака */}
+        {/* Личное обращение — подъезжает пружиной после прорисовки знака */}
         <motion.p
           initial={reduce ? false : { opacity: 0, y: 14 }}
           animate={reduce ? undefined : { opacity: 1, y: 0 }}
-          transition={{
-            delay: 0.7,
-            type: "spring",
-            stiffness: 220,
-            damping: 22,
-          }}
+          transition={{ delay: 0.55, type: "spring", stiffness: 220, damping: 22 }}
           className="mt-7 font-serif text-2xl font-light leading-snug text-paper sm:text-3xl"
         >
-          Заявка принята — мы перезвоним в течение 30 минут
+          {c.greeting}
+          {firstName}.
         </motion.p>
+        <p className="mt-3 max-w-sm text-sm leading-relaxed text-paper/60 sm:text-base">
+          {c.promise}
+        </p>
+
+        {summaryRows.length > 0 && (
+          <dl className="mt-8 w-full max-w-sm space-y-2.5 border-t border-paper/15 pt-6 text-sm">
+            {summaryRows.map((row) => (
+              <div key={row.label} className="flex justify-between gap-6">
+                <dt className="shrink-0 text-paper/45">{row.label}</dt>
+                <dd className="text-right text-paper/80">{row.value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+
+        <p className="mt-6 max-w-sm text-sm leading-relaxed text-paper/55">
+          {c.bring}
+        </p>
+
+        <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3 text-sm">
+          {values.date && (
+            <button
+              type="button"
+              onClick={addToCalendar}
+              className="tracking-wide text-paper underline decoration-paper/30 underline-offset-4 transition-colors duration-300 hover:decoration-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+            >
+              {c.calendar}
+            </button>
+          )}
+          {chosenSalon && (
+            <a
+              href={mapHrefFor(chosenSalon.address)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="tracking-wide text-paper/70 underline decoration-paper/20 underline-offset-4 transition-colors duration-300 hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+            >
+              {c.map}
+            </a>
+          )}
+        </div>
+
         <button
           type="button"
           onClick={resetForm}
-          className="mt-8 text-sm tracking-wide text-paper/60 underline decoration-paper/30 underline-offset-4 transition-colors duration-300 hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+          className="mt-8 text-sm tracking-wide text-paper/50 underline decoration-paper/20 underline-offset-4 transition-colors duration-300 hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
         >
-          Отправить ещё заявку
+          {c.again}
         </button>
       </motion.div>
     );
@@ -434,6 +592,56 @@ export default function BookingForm() {
             // нативный календарь и его иконка — в тёмном исполнении
             style={{ colorScheme: "dark" }}
           />
+        </div>
+
+        {/* Удобный салон — на весь ряд (адреса длинные). Уходит в заявку
+            и в персональное подтверждение (A1). */}
+        <div className="form-field sm:col-span-2">
+          <label htmlFor="booking-salon" className={labelClasses}>
+            Удобный салон
+          </label>
+          <div className="relative">
+            <select
+              id="booking-salon"
+              value={values.salon}
+              onChange={(e) => set("salon")(e.target.value)}
+              className={cn(
+                fieldClasses,
+                "appearance-none pr-10",
+                !values.salon && "text-paper/40"
+              )}
+            >
+              <option value="" className="bg-paper text-ink">
+                Подскажем ближайший
+              </option>
+              {salons.map((s) => (
+                <option
+                  key={s.address}
+                  value={s.address}
+                  className="bg-paper text-ink"
+                >
+                  {s.address}
+                  {s.note ? ` · ${s.note}` : ""}
+                </option>
+              ))}
+            </select>
+            <svg
+              width="12"
+              height="8"
+              viewBox="0 0 12 8"
+              fill="none"
+              aria-hidden="true"
+              className="pointer-events-none absolute right-4 top-1/2 mt-1 -translate-y-1/2 text-paper/60"
+            >
+              <path
+                d="M1 1.5 6 6.5 11 1.5"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
         </div>
       </div>
 

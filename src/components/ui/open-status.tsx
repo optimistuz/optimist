@@ -69,13 +69,20 @@ export function useOpenStatus(): { open: boolean; label: string } | null {
  * Бейдж статуса: точка-маркер СТАТИЧНАЯ (открыто — brand, закрыто и
  * до маунта — ink/30), мелкий uppercase-текст.
  */
-export function OpenStatusBadge({ className }: { className?: string }) {
+export function OpenStatusBadge({
+  className,
+  onDark = false,
+}: {
+  className?: string;
+  onDark?: boolean;
+}) {
   const status = useOpenStatus();
 
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-2.5 text-xs font-medium uppercase tracking-[0.15em] text-graphite",
+        "inline-flex items-center gap-2.5 text-xs font-medium uppercase tracking-[0.15em]",
+        onDark ? "text-paper/60" : "text-graphite",
         className
       )}
     >
@@ -83,7 +90,7 @@ export function OpenStatusBadge({ className }: { className?: string }) {
         aria-hidden
         className={cn(
           "h-1.5 w-1.5 shrink-0 rounded-full",
-          status?.open ? "bg-brand" : "bg-ink/30"
+          status?.open ? "bg-brand" : onDark ? "bg-paper/30" : "bg-ink/30"
         )}
       />
       {status?.label ?? NEUTRAL}

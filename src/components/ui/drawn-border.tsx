@@ -1,7 +1,8 @@
 "use client";
 
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
 import { EASE } from "@/lib/motion";
+import { useReduceAfterMount } from "@/lib/use-reduce-after-mount";
 
 /**
  * Рисующаяся верхняя граница секции: волосяная линия проводится
@@ -10,7 +11,7 @@ import { EASE } from "@/lib/motion";
  * Reduced-motion: статичная линия.
  */
 export function DrawnBorder() {
-  const reduce = useReducedMotion();
+  const reduce = useReduceAfterMount();
 
   if (reduce) {
     return <div aria-hidden className="absolute inset-x-0 top-0 h-px bg-line" />;

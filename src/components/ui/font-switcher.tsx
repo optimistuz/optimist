@@ -13,6 +13,8 @@ const FONTS = [
   { label: "Cormorant", value: "var(--font-cormorant)" },
   { label: "Prata", value: "var(--font-prata)" },
   { label: "Jost", value: "var(--font-jost)" },
+  // Вариативный: при выборе включается «наведение» заголовков по оси opsz (B1)
+  { label: "Literata", value: "var(--font-literata)" },
 ];
 
 export default function FontSwitcher() {

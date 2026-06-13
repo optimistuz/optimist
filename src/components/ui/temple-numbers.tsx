@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { cn } from "@/lib/cn";
+import { useReduceAfterMount } from "@/lib/use-reduce-after-mount";
 import { templeNumbers } from "@/content/home";
 
 /* ------------------------------------------------------------------
@@ -76,7 +77,7 @@ function Measure({
 }
 
 export default function TempleNumbers() {
-  const reduce = !!useReducedMotion();
+  const reduce = useReduceAfterMount();
   const [hovered, setHovered] = useState<Key | null>(null);
   const [pinned, setPinned] = useState<Key | null>(null);
   const active = hovered ?? pinned;

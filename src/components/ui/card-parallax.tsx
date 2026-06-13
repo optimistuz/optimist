@@ -1,7 +1,8 @@
 "use client";
 
 import { useRef, type ReactNode } from "react";
-import { motion, useReducedMotion, useScroll, useTransform } from "motion/react";
+import { motion, useScroll, useTransform } from "motion/react";
+import { useReduceAfterMount } from "@/lib/use-reduce-after-mount";
 
 /**
  * Внутренний параллакс фотографии карточки: ДОПОЛНИТЕЛЬНЫЙ слой вокруг
@@ -11,7 +12,7 @@ import { motion, useReducedMotion, useScroll, useTransform } from "motion/react"
  */
 export function CardParallax({ children }: { children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
-  const reduce = useReducedMotion();
+  const reduce = useReduceAfterMount();
   const { scrollYProgress } = useScroll({
     target: ref,
     offset: ["start end", "end start"],

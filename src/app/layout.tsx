@@ -1,10 +1,11 @@
 import type { Metadata, Viewport } from "next";
-import { Cormorant_Garamond, Jost, Manrope, Prata } from "next/font/google";
+import { Cormorant_Garamond, Jost, Literata, Manrope, Prata } from "next/font/google";
 import dynamic from "next/dynamic";
 import "./globals.css";
 import SmoothScroll from "@/components/smooth-scroll";
 import { IntroProvider } from "@/components/ui/intro";
 import Header from "@/components/layout/header";
+import SectionRail from "@/components/layout/section-rail";
 import Footer from "@/components/layout/footer";
 import { salons, site } from "@/content/home";
 
@@ -38,6 +39,15 @@ const jost = Jost({
   display: "swap",
   variable: "--font-jost",
   weight: ["300", "400", "500"],
+});
+
+// Вариативный editorial-серив с осью opsz и кириллицей — носитель эффекта
+// «наведения» заголовков (B1, оси opsz + wght). Кандидат в dev-переключателе.
+const literata = Literata({
+  subsets: ["latin", "cyrillic"],
+  display: "swap",
+  variable: "--font-literata",
+  axes: ["opsz"],
 });
 
 // Текст — чистый геометрический гротеск (полная кириллица)
@@ -140,7 +150,7 @@ export default function RootLayout({
   return (
     <html
       lang="ru"
-      className={`${cormorant.variable} ${prata.variable} ${jost.variable} ${manrope.variable}`}
+      className={`${cormorant.variable} ${prata.variable} ${jost.variable} ${literata.variable} ${manrope.variable}`}
     >
       <body className="font-sans antialiased">
         {/* Skip-link: первый фокусируемый элемент, проявляется плашкой */}
@@ -157,6 +167,9 @@ export default function RootLayout({
         <IntroProvider>
           <SmoothScroll>
             <Header />
+            {/* «Шкала наводки» — сквозная навигация поверх сайта; как и
+                шапка, живёт вне page-shell (не сжимается за мобильным меню) */}
+            <SectionRail />
             {/* page-shell слегка сжимается за открытым мобильным меню
                 (фокус-идиома); шапка и оверлеи остаются снаружи */}
             <div className="page-shell">

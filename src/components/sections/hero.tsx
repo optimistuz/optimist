@@ -22,16 +22,21 @@ const lineParent: Variants = {
   hidden: {},
   visible: { transition: { staggerChildren: 0.12, delayChildren: 0.15 } },
 };
-// Маска + лёгкий расфокус: заголовок «наводится на резкость» при загрузке
+// Маска + лёгкий расфокус + оптическая «наводка» (B1): заголовок «наводится
+// на резкость» при загрузке. Ось opsz 20→72 работает при вариативном шрифте
+// (Literata); статичные её игнорируют.
 const lineChild: Variants = {
-  hidden: { y: "110%", opacity: 0, filter: "blur(6px)" },
+  // --opsz анимируем числом (см. maskLineChild): строка читает его через
+  // style font-variation-settings. fontVariationSettings motion не анимирует.
+  hidden: { y: "110%", opacity: 0, filter: "blur(6px)", "--opsz": 20 },
   visible: {
     y: "0%",
     opacity: 1,
     filter: "blur(0px)",
+    "--opsz": 72,
     transition: { duration: 0.9, ease: EASE },
   },
-};
+} as Variants;
 
 export default function Hero() {
   const ref = useRef<HTMLElement>(null);
@@ -72,9 +77,11 @@ export default function Hero() {
       <Container className="grid w-full grid-cols-1 items-center gap-14 lg:grid-cols-12 lg:gap-8">
         {/* Парящая оправа: лежит прямо на странице (multiply, без рамки).
             Desktop: absolute от секции — верх под стеклянную шапку (матовый
-            просвет дужки — фича), правый край за вьюпорт; топ-слой текста
-            выше (1024–1279 допустим заход под текст). Мобайл: в потоке над
-            заголовком, ~85vw, выпуск только за правый край. */}
+            просвет дужки — фича). Крупнее и сдвинута левее: правый край
+            отступает от кромки, освобождая место «Шкале наводки» (навигация
+            больше не налезает на оправу); топ-слой текста выше (заход под
+            текст допустим). Мобайл: в потоке над заголовком, ~85vw, выпуск
+            только за правый край. */}
         <FloatFrame
           slot="hero-float"
           priority
@@ -90,9 +97,9 @@ export default function Hero() {
           exitScale={0.97}
           shadow="natural"
           sectionTone="offwhite"
-          sizes="(min-width:1280px) 48vw, (min-width:1024px) 52vw, 85vw"
-          widthClass="w-[85vw] lg:w-[52vw] xl:w-[48vw]"
-          className="z-0 -mr-[12vw] -mt-6 ml-auto lg:absolute lg:right-[-8vw] lg:top-[2vw] lg:m-0"
+          sizes="(min-width:1280px) 54vw, (min-width:1024px) 58vw, 85vw"
+          widthClass="w-[85vw] lg:w-[58vw] xl:w-[54vw]"
+          className="z-0 -mr-[12vw] -mt-6 ml-auto lg:absolute lg:right-[7vw] lg:top-[1vw] lg:m-0 xl:right-[9vw]"
         />
 
         {/* Текст */}
@@ -133,7 +140,11 @@ export default function Hero() {
                     style={{ y: lineYs[i] }}
                     className="block overflow-hidden"
                   >
-                    <motion.span variants={lineChild} className="block">
+                    <motion.span
+                      variants={lineChild}
+                      style={{ fontVariationSettings: '"opsz" var(--opsz, 72)' }}
+                      className="block"
+                    >
                       {l}
                     </motion.span>
                   </motion.span>
@@ -144,6 +155,7 @@ export default function Hero() {
                 >
                   <motion.span
                     variants={lineChild}
+                    style={{ fontVariationSettings: '"opsz" var(--opsz, 72)' }}
                     className="block text-brand"
                   >
                     {hero.titleAccent}

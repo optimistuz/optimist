@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, useReducedMotion, type Variants } from "motion/react";
+import { motion, type Variants } from "motion/react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import {
@@ -11,6 +11,7 @@ import {
   maskLineChild,
   staggerParent,
 } from "@/lib/motion";
+import { useReduceAfterMount } from "@/lib/use-reduce-after-mount";
 
 /**
  * Появление одного блока при попадании в зону видимости.
@@ -31,7 +32,7 @@ export function Reveal({
   y?: number;
   variant?: "fade" | "focus";
 }) {
-  const reduce = useReducedMotion();
+  const reduce = useReduceAfterMount();
   if (reduce) return <div className={className}>{children}</div>;
 
   const focus = variant === "focus";
@@ -65,7 +66,7 @@ export function RevealLines({
   text: string;
   className?: string;
 }) {
-  const reduce = useReducedMotion();
+  const reduce = useReduceAfterMount();
   const lines = text.split("\n");
 
   if (reduce) {
@@ -93,7 +94,14 @@ export function RevealLines({
     >
       {lines.map((line) => (
         <span key={line} className="block overflow-hidden">
-          <motion.span variants={maskLineChild} className="block">
+          <motion.span
+            variants={maskLineChild}
+            // Оптическая «наводка» (B1): читает анимируемую --opsz; при
+            // вариативном шрифте (Literata) строка оптически резкостится.
+            // Фолбэк 72 — для статичной (reduced) ветки и до маунта.
+            style={{ fontVariationSettings: '"opsz" var(--opsz, 72)' }}
+            className="block"
+          >
             {line}
           </motion.span>
         </span>
@@ -110,7 +118,7 @@ export function RevealGroup({
   children: ReactNode;
   className?: string;
 }) {
-  const reduce = useReducedMotion();
+  const reduce = useReduceAfterMount();
   if (reduce) return <div className={className}>{children}</div>;
 
   return (
@@ -140,7 +148,7 @@ export function RevealItem({
   className?: string;
   variants?: Variants;
 }) {
-  const reduce = useReducedMotion();
+  const reduce = useReduceAfterMount();
   if (reduce) return <div className={className}>{children}</div>;
 
   return (

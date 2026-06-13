@@ -1,9 +1,10 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
 import { cn } from "@/lib/cn";
 import { EASE, VIEWPORT } from "@/lib/motion";
+import { useReduceAfterMount } from "@/lib/use-reduce-after-mount";
 
 /**
  * Надзаголовок секции: тонкая красная чёрточка + текст в разрядку.
@@ -19,7 +20,9 @@ export function Eyebrow({
   onDark?: boolean;
   className?: string;
 }) {
-  const reduce = useReducedMotion();
+  // reduced-motion только после маунта — иначе класс origin-left расходится
+  // между сервером и клиентом (hydration-mismatch). См. useReduceAfterMount.
+  const reduce = useReduceAfterMount();
 
   return (
     <span
