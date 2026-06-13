@@ -59,6 +59,8 @@ export function FloatFrame({
   exitDefocus = 0,
   exitScale = 1,
   sectionTone = "offwhite",
+  draggable = false,
+  gyro = false,
 }: {
   slot: PhotoSlot;
   /** Ширина коробки (Tailwind-классы), напр. "w-[52vw] max-w-[980px]". */
@@ -93,6 +95,13 @@ export function FloatFrame({
   exitScale?: number;
   /** Фон изолированной коробки = фон секции, где лежит оправа. */
   sectionTone?: "offwhite" | "paper";
+  /** Перетаскивание (ТОЛЬКО hero, только desktop): схватил — ±40px,
+      отпустил — пружинит на место. Drag-слой несёт свой фон секции,
+      чтобы blend оставался корректным (фон едет с оправой). */
+  draggable?: boolean;
+  /** Гиро-наклон оправы ±1.5° (ТОЛЬКО Android: DeviceOrientationEvent
+      есть, requestPermission НЕ функция — без диалогов). iOS молча без. */
+  gyro?: boolean;
 }) {
   const src = PHOTOS[slot];
   const dims = FLOAT_INTRINSIC[slot];
@@ -154,10 +163,76 @@ export function FloatFrame({
     damping: 24,
   });
 
+  /* ---- Перетаскивание (только hero, только desktop) ---- */
+  const dragEnabled = !!draggable && mounted && desktop && !reduce;
+  const dragX = useMotionValue(0);
+  const dragY = useMotionValue(0);
+  // 1 пока тащим — рука в приоритете, cursorTilt и rotateDrift замолкают
+  const dragActive = useMotionValue(0);
+  const dragQuiet = useSpring(dragActive, { stiffness: 200, damping: 26 });
+  const endDrag = () => {
+    dragActive.set(0);
+    // dragSnapToOrigin со spring (stiffness ~180, damping ~16) — пружинит назад
+    animate(dragX, 0, { type: "spring", stiffness: 180, damping: 16 });
+    animate(dragY, 0, { type: "spring", stiffness: 180, damping: 16 });
+  };
+
+  // Наклон за курсором глушится во время drag (умножение на 1−dragQuiet)
+  const tiltXQuiet = useTransform(
+    [tiltX, dragQuiet],
+    ([t, q]) => (t as number) * (1 - (q as number))
+  );
+
+  /* ---- Гиро-наклон (только Android, пока hero в вьюпорте) ---- */
+  const [android, setAndroid] = useState(false);
+  useEffect(() => {
+    const DOE = (
+      window as unknown as {
+        DeviceOrientationEvent?: { requestPermission?: unknown };
+      }
+    ).DeviceOrientationEvent;
+    // Android: событие есть, диалога разрешения нет (iOS — requestPermission функция)
+    setAndroid(
+      typeof DOE !== "undefined" && typeof DOE.requestPermission !== "function"
+    );
+  }, []);
+  // Не-once видимость: гиро живёт только пока оправа в кадре
+  const liveInView = useInView(rootRef);
+  const gyroTarget = useMotionValue(0);
+  const gyroRotate = useSpring(gyroTarget, { stiffness: 60, damping: 20 });
+  const gyroOn = gyro && mounted && !reduce && android;
+  useEffect(() => {
+    if (!gyroOn || !liveInView) return;
+    let raf = 0;
+    let pending = 0;
+    const onOrient = (e: DeviceOrientationEvent) => {
+      const gamma = e.gamma ?? 0; // наклон влево-вправо, −90…90
+      pending = Math.max(-1.5, Math.min(1.5, (gamma / 30) * 1.5));
+      if (!raf)
+        raf = requestAnimationFrame(() => {
+          raf = 0;
+          gyroTarget.set(pending);
+        });
+    };
+    window.addEventListener("deviceorientation", onOrient);
+    return () => {
+      window.removeEventListener("deviceorientation", onOrient);
+      if (raf) cancelAnimationFrame(raf);
+      gyroTarget.set(0);
+    };
+  }, [gyroOn, liveInView, gyroTarget]);
+
   const totalRotate = useTransform(
-    [drift, tiltRotate],
-    ([d, t]) =>
-      rotate + (rotateDrift && !reduce ? (d as number) : 0) + (tiltOn ? (t as number) : 0)
+    [drift, tiltRotate, dragQuiet, gyroRotate],
+    ([d, t, q, gy]) => {
+      const g = 1 - (q as number);
+      return (
+        rotate +
+        (rotateDrift && !reduce ? (d as number) * g : 0) +
+        (tiltOn ? (t as number) * g : 0) +
+        (gy as number)
+      );
+    }
   );
 
   /* ---- Фильтры: все слагаемые — в ОДИН filter на <img> ---- */
@@ -223,6 +298,60 @@ export function FloatFrame({
   if (!src || !dims) return null; // пустой слот лучше заметного шва
 
   const still = reduce; // reduced-motion: статичная резкая оправа
+  const bgClass = sectionTone === "paper" ? "bg-paper" : "bg-offwhite";
+
+  // Тень + сама blend-картинка. При draggable это содержимое кладётся
+  // в drag-слой (несущий свой фон секции), иначе — прямо в транформ-слой.
+  const innerContent = (
+    <>
+      {shadow === "ellipse" && (
+        <motion.div
+          style={
+            still
+              ? { opacity: 0.12 }
+              : { y: shadowLagY, opacity: shadowOpacity, scale: shadowScale }
+          }
+          className="absolute inset-x-[12%] bottom-[2%] h-[14%]"
+        >
+          <div
+            className="h-full w-full"
+            style={{
+              background:
+                "radial-gradient(50% 50% at 50% 50%, rgba(13,13,13,0.55) 0%, transparent 72%)",
+            }}
+          />
+        </motion.div>
+      )}
+
+      <MotionImage
+        src={src}
+        alt=""
+        width={dims.width}
+        height={dims.height}
+        sizes={sizes}
+        priority={priority}
+        draggable={false}
+        // КРИТИЧНО: оптимизатор Next перекодирует в WebP/AVIF и YUV-
+        // конвертация сдвигает белую точку 255 → 254 (при любом q) —
+        // после multiply внутри кадра остаётся «фон − 1», шов рубежа 3.
+        // Blend-кадры отдаются оригиналом; они нормализованы и сжаты,
+        // браузерный даунскейл белый не трогает (проверено пиксельно).
+        unoptimized
+        // Фильтры — только desktop: identity-blur(0px) на мобиле
+        // всё равно создавал бы композитный слой (цена GPU).
+        // filter: "none" явный — при смене desktop→mobile или reduce
+        // инлайновый фильтр иначе остался бы замороженным
+        style={
+          still
+            ? { opacity: 1, filter: "none" }
+            : filtersOn
+              ? { filter, opacity: entranceOpacity }
+              : { filter: "none", opacity: entranceOpacity }
+        }
+        className="relative h-auto w-full mix-blend-multiply"
+      />
+    </>
+  );
 
   return (
     <div
@@ -245,62 +374,36 @@ export function FloatFrame({
             ? { rotate }
             : {
                 y: parallaxY,
-                x: tiltOn ? tiltX : 0,
+                x: tiltOn ? tiltXQuiet : 0,
                 rotate: totalRotate,
                 scale,
               }
         }
-        className={cn(
-          "relative",
-          sectionTone === "paper" ? "bg-paper" : "bg-offwhite"
-        )}
+        className={cn("relative", bgClass)}
       >
-        {shadow === "ellipse" && (
+        {draggable ? (
+          // Drag-слой: свой фон секции лежит ВНУТРИ его transform (факт 1) —
+          // translate от drag двигает фон вместе с оправой, шва нет.
           <motion.div
-            style={
-              still
-                ? { opacity: 0.12 }
-                : { y: shadowLagY, opacity: shadowOpacity, scale: shadowScale }
-            }
-            className="absolute inset-x-[12%] bottom-[2%] h-[14%]"
+            drag={dragEnabled}
+            style={{ x: dragX, y: dragY }}
+            dragConstraints={{ left: -40, right: 40, top: -40, bottom: 40 }}
+            dragElastic={0.16}
+            dragMomentum={false}
+            onDragStart={() => dragActive.set(1)}
+            onDragEnd={endDrag}
+            className={cn(
+              "relative",
+              bgClass,
+              dragEnabled &&
+                "pointer-events-auto cursor-grab active:cursor-grabbing"
+            )}
           >
-            <div
-              className="h-full w-full"
-              style={{
-                background:
-                  "radial-gradient(50% 50% at 50% 50%, rgba(13,13,13,0.55) 0%, transparent 72%)",
-              }}
-            />
+            {innerContent}
           </motion.div>
+        ) : (
+          innerContent
         )}
-
-        <MotionImage
-          src={src}
-          alt=""
-          width={dims.width}
-          height={dims.height}
-          sizes={sizes}
-          priority={priority}
-          draggable={false}
-          // КРИТИЧНО: оптимизатор Next перекодирует в WebP/AVIF и YUV-
-          // конвертация сдвигает белую точку 255 → 254 (при любом q) —
-          // после multiply внутри кадра остаётся «фон − 1», шов рубежа 3.
-          // Blend-кадры отдаются оригиналом; они нормализованы и сжаты,
-          // браузерный даунскейл белый не трогает (проверено пиксельно).
-          unoptimized
-          // Фильтры — только desktop: identity-blur(0px) на мобиле
-          // всё равно создавал бы композитный слой (цена GPU).
-          // filter: "none" явный — при смене desktop→mobile или reduce
-          // инлайновый фильтр иначе остался бы замороженным
-          style={
-            still
-              ? { opacity: 1, filter: "none" }
-              : filtersOn
-                ? { filter, opacity: entranceOpacity }
-                : { filter: "none", opacity: entranceOpacity }
-          }
-          className="relative h-auto w-full mix-blend-multiply"
-        />
       </motion.div>
     </div>
   );

@@ -6,9 +6,11 @@ import Expertise from "@/components/sections/expertise";
 import Anatomy from "@/components/sections/anatomy";
 import Brands from "@/components/sections/brands";
 import Collections from "@/components/sections/collections";
+import FitQuiz from "@/components/sections/fit-quiz";
 import Atmosphere from "@/components/sections/atmosphere";
 import Testimonials from "@/components/sections/testimonials";
 import Salons from "@/components/sections/salons";
+import Faq from "@/components/sections/faq";
 import CTA from "@/components/sections/cta";
 
 export default function Home() {
@@ -22,9 +24,11 @@ export default function Home() {
       <Anatomy />
       <Brands />
       <Collections />
+      <FitQuiz />
       <Atmosphere />
       <Testimonials />
       <Salons />
+      <Faq />
       <CTA />
     </>
   );

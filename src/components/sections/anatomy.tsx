@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AnimatePresence,
   easeInOut,
@@ -55,6 +55,19 @@ const STROKE_ACTIVE_DELTA = 0.5;
     внутренность контура), иначе линза перехватывала бы клики по
     линии ободка; у силуэта ободков ореол щедрый. */
 const PART_HIT = [18, 8, 14, 14, 14, 14, 16];
+
+/** Центроиды деталей (единицы чертежа ДО масштаба) — для мягкой подсветки
+    ближайшей детали под курсором (Блок 8.2: подсказка, не выбор). */
+const PART_CENTROID: [number, number][] = [
+  [324, 112], // 01 Ободки
+  [324, 112], // 02 Линзы
+  [324, 84], // 03 Мост
+  [324, 133], // 04 Носоупоры
+  [261, 141], // 05 Шарниры
+  [335, 258], // 06 Дужки
+  [567, 286], // 07 Заушники
+];
+const PROXIMITY_PX = 80; // порог близости в экранных px
 
 /** ex/ey — вектор разнесённой сборки: куда деталь уезжает в разобранном
     виде (в единицах viewBox, вдоль «оси сборки» своего узла). Сборку
@@ -281,6 +294,9 @@ function PartGroup({
   reduce,
   progress,
   handlers,
+  celebrate = false,
+  celebrating = false,
+  near = false,
 }: {
   shapes: Shape[];
   index: number;
@@ -289,6 +305,9 @@ function PartGroup({
   reduce: boolean;
   progress: MotionValue<number>;
   handlers: PartHandlers;
+  celebrate?: boolean;
+  celebrating?: boolean;
+  near?: boolean;
 }) {
   const t = index / (total - 1); // 0 у детали 01 … 1 у детали 07
   // Окна согласованы с видимостью чертежа: целиком он на экране примерно
@@ -303,19 +322,28 @@ function PartGroup({
   );
   const sel = active === index;
   const dim = active !== null && !sel;
+  const litBrand = sel || celebrate;
+  const proximity = near && !sel && !celebrate; // подсказка близости
   return (
     <>
       <g
         stroke="currentColor"
         pointerEvents="none"
-        className={sel ? "text-brand" : "text-ink"}
+        className={
+          litBrand ? "text-brand" : proximity ? "text-ink/80" : "text-ink"
+        }
         style={{
           strokeWidth:
-            (PART_STROKE[index] + (sel ? STROKE_ACTIVE_DELTA : 0)) / DRAW_SCALE,
+            (PART_STROKE[index] +
+              (sel ? STROKE_ACTIVE_DELTA : 0) +
+              (proximity ? 0.25 : 0)) /
+            DRAW_SCALE,
           opacity: dim ? 0.25 : 1,
           transition: reduce
             ? undefined
-            : "opacity 250ms ease, stroke-width 250ms ease, stroke 250ms ease",
+            : "opacity 250ms ease, stroke-width 250ms ease, color 250ms ease",
+          transitionDelay:
+            celebrating && !reduce ? `${index * 0.06}s` : undefined,
         }}
       >
         {shapes.map((s, j) => (
@@ -357,25 +385,119 @@ export default function Anatomy() {
   const [touched, setTouched] = useState(false);
   const active = hovered ?? pinned;
 
+  // ---- Завершение (8.1) + близость курсора (8.2) ----
+  const [desktop, setDesktop] = useState(false);
+  const [celebrate, setCelebrate] = useState(false); // фаза «штрихи в brand»
+  const [celebrating, setCelebrating] = useState(false); // окно stagger-задержки
+  const [showDone, setShowDone] = useState(false); // строка-награда
+  const [near, setNear] = useState<number | null>(null); // ближайшая деталь
+  const viewedRef = useRef<Set<number>>(new Set());
+  const celebratedRef = useRef(false);
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(pointer: fine) and (min-width: 1024px)");
+    const update = () => setDesktop(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  const triggerCelebrate = () => {
+    if (celebratedRef.current) return;
+    celebratedRef.current = true;
+    try {
+      if (sessionStorage.getItem("optimist-anatomy-done")) return; // уже было
+      sessionStorage.setItem("optimist-anatomy-done", "1");
+    } catch {
+      /* приватный режим — покажем один раз без памяти */
+    }
+    setShowDone(true);
+    if (!reduce) {
+      // Каскад: штрихи пробегают brand группа за группой ~1.2 с, затем ink
+      setCelebrating(true);
+      setCelebrate(true);
+      window.setTimeout(() => setCelebrate(false), 1250);
+      window.setTimeout(() => setCelebrating(false), 2100);
+    }
+  };
+
   const markTouched = () => {
     if (!touched) setTouched(true);
   };
+  const markViewed = (i: number) => {
+    if (celebratedRef.current) return;
+    viewedRef.current.add(i);
+    if (viewedRef.current.size >= PART_SHAPES.length) triggerCelebrate();
+  };
+
   const labelHandlers = (i: number) => ({
     onMouseEnter: () => {
       setHovered(i);
       markTouched();
+      markViewed(i);
     },
     onMouseLeave: () => setHovered(null),
     onFocus: () => {
       setHovered(i);
       markTouched();
+      markViewed(i);
     },
     onBlur: () => setHovered(null),
     onClick: () => {
       setPinned((p) => (p === i ? null : i));
       markTouched();
+      markViewed(i);
     },
   });
+
+  // Близость курсора (desktop): подсвечивает ближайшую деталь, не выбирает.
+  // Активная деталь приоритетнее — тогда близость гасим.
+  useEffect(() => {
+    if (reduce || !desktop || active !== null) {
+      setNear(null);
+      return;
+    }
+    let raf = 0;
+    const onMove = (e: MouseEvent) => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const el = svgRef.current;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        if (
+          e.clientX < rect.left ||
+          e.clientX > rect.right ||
+          e.clientY < rect.top ||
+          e.clientY > rect.bottom
+        ) {
+          setNear(null);
+          return;
+        }
+        const rawX =
+          (((e.clientX - rect.left) / rect.width) * VB_W - DRAW_TX) / DRAW_SCALE;
+        const rawY =
+          (((e.clientY - rect.top) / rect.height) * VB_H - DRAW_TY) / DRAW_SCALE;
+        const thresh = ((PROXIMITY_PX / rect.width) * VB_W) / DRAW_SCALE;
+        let best = -1;
+        let bestD = Infinity;
+        for (let i = 0; i < PART_CENTROID.length; i++) {
+          const d = Math.hypot(rawX - PART_CENTROID[i][0], rawY - PART_CENTROID[i][1]);
+          if (d < bestD) {
+            bestD = d;
+            best = i;
+          }
+        }
+        setNear(best >= 0 && bestD <= thresh ? best : null);
+      });
+    };
+    window.addEventListener("mousemove", onMove, { passive: true });
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [reduce, desktop, active]);
 
   // ---- Разнесённая сборка: прогресс скролла сквозь чертёж ----------
   // 0 — обёртка чертежа у нижней кромки вьюпорта, 1 — у верхней.
@@ -447,6 +569,7 @@ export default function Anatomy() {
           {/* Гутеры по бокам — место для колонок подписей на desktop */}
           <div className="relative lg:px-44">
             <svg
+              ref={svgRef}
               viewBox={`0 0 ${VB_W} ${VB_H}`}
               role="img"
               aria-label="Чертёж оправы: анфас и раскрытая дужка в профиль, семь деталей"
@@ -470,6 +593,9 @@ export default function Anatomy() {
                     reduce={reduce}
                     progress={scrollYProgress}
                     handlers={labelHandlers(i)}
+                    celebrate={celebrate}
+                    celebrating={celebrating}
+                    near={active === null && near === i}
                   />
                 ))}
               </g>
@@ -571,6 +697,7 @@ export default function Anatomy() {
                   onClick={() => {
                     setPinned((p) => (p === i ? null : i));
                     markTouched();
+                    markViewed(i);
                   }}
                   className={cn(
                     "whitespace-nowrap rounded-full border px-3.5 py-1.5 text-xs transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand",
@@ -606,6 +733,20 @@ export default function Anatomy() {
               </motion.p>
             </AnimatePresence>
           </div>
+
+          {/* Награда за осмотр всех семи деталей — строка focus-входом */}
+          {showDone && (
+            <motion.p
+              initial={reduce ? false : { opacity: 0, y: 8, filter: "blur(6px)" }}
+              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+              transition={{ duration: reduce ? 0 : 0.7, ease: "easeOut" }}
+              className="mx-auto mt-2 max-w-xl text-center text-sm font-medium text-brand-deep sm:text-base"
+              role="status"
+            >
+              <span className="sr-only">{anatomy.doneAria} </span>
+              {anatomy.done}
+            </motion.p>
+          )}
         </Wrapper>
       </Container>
     </Section>

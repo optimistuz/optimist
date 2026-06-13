@@ -143,6 +143,13 @@ export default function RootLayout({
       className={`${cormorant.variable} ${prata.variable} ${jost.variable} ${manrope.variable}`}
     >
       <body className="font-sans antialiased">
+        {/* Skip-link: первый фокусируемый элемент, проявляется плашкой */}
+        <a
+          href="#main"
+          className="sr-only rounded-[4px] bg-ink px-5 py-3 text-sm font-medium text-paper focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-offwhite"
+        >
+          К содержанию
+        </a>
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
@@ -153,7 +160,9 @@ export default function RootLayout({
             {/* page-shell слегка сжимается за открытым мобильным меню
                 (фокус-идиома); шапка и оверлеи остаются снаружи */}
             <div className="page-shell">
-              <main>{children}</main>
+              <main id="main" tabIndex={-1} className="outline-none">
+                {children}
+              </main>
               <Footer />
             </div>
           </SmoothScroll>

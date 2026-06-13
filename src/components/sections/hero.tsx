@@ -82,6 +82,8 @@ export default function Hero() {
           parallaxSpeed={0.92}
           cursorTilt
           rotateDrift
+          draggable
+          gyro
           entrance="focus"
           entranceWaitIntro
           exitDefocus={4}

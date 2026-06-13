@@ -1,6 +1,7 @@
 import { Container } from "@/components/ui/container";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import { Reveal } from "@/components/ui/reveal";
+import BrandMarquee from "@/components/ui/brand-marquee";
 import { brands } from "@/content/home";
 
 export default function Brands() {
@@ -17,21 +18,9 @@ export default function Brands() {
         </Reveal>
       </Container>
 
-      {/* Бесконечная лента логотипов (замедляется при наведении) */}
-      <div className="marquee-group relative overflow-x-clip">
-        <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-16 bg-gradient-to-r from-offwhite to-transparent sm:w-32" />
-        <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-16 bg-gradient-to-l from-offwhite to-transparent sm:w-32" />
-        <div className="flex w-max animate-marquee">
-          {[...list, ...list].map((name, i) => (
-            <span
-              key={i}
-              className="mx-10 whitespace-nowrap font-sans text-2xl font-medium uppercase tracking-wide text-ink/30 transition-colors duration-300 hover:text-ink sm:mx-14 sm:text-3xl"
-            >
-              {name}
-            </span>
-          ))}
-        </div>
-      </div>
+      {/* Живая лента логотипов: rAF-маркиза, ускоряется от скролла,
+          тормозит при наведении, замирает вне экрана (BrandMarquee) */}
+      <BrandMarquee items={list} />
     </section>
   );
 }

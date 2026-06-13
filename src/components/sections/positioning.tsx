@@ -2,6 +2,7 @@ import { Section } from "@/components/ui/section";
 import { Container } from "@/components/ui/container";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import { Reveal } from "@/components/ui/reveal";
+import { PulseWord } from "@/components/ui/pulse-word";
 import { positioning } from "@/content/home";
 
 export default function Positioning() {
@@ -16,9 +17,7 @@ export default function Positioning() {
             <p className="font-serif text-display-lg font-light leading-[1.12] text-ink">
               <span className="text-graphite">{positioning.lead} </span>
               {positioning.statementBefore}
-              <em className="not-italic text-brand">
-                {positioning.statementAccent}
-              </em>
+              <PulseWord>{positioning.statementAccent}</PulseWord>
               {positioning.statementAfter}
             </p>
           </Reveal>

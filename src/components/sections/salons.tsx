@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/reveal";
 import { MotionFocus } from "@/components/ui/motion-focus";
 import { OpenStatusBadge } from "@/components/ui/open-status";
+import { SalonActions } from "@/components/ui/salon-actions";
 import { Placeholder } from "@/components/ui/placeholder";
 import { salons, salonsSection, site } from "@/content/home";
 import { imageReveal } from "@/lib/motion";
@@ -55,6 +56,7 @@ export default function Salons() {
                     {salon.district}
                     {salon.note ? ` · ${salon.note}` : ""}
                   </p>
+                  <SalonActions address={salon.address} />
                 </div>
                 <div className="shrink-0 text-sm leading-relaxed text-graphite sm:text-right">
                   <p>{site.hours.weekdays}</p>

@@ -94,6 +94,8 @@ export default function SmoothScroll({
         return;
       }
       e.preventDefault();
+      // Skip-link «К содержанию»: переносим фокус на основной контент (a11y)
+      if (hash === "#main") (targetEl as HTMLElement).focus({ preventScroll: true });
       if (instance) {
         // По прибытии — фокус-пульс заголовка целевой секции (MotionFocus
         // слушает anchor-arrive). При reduced-motion Lenis нет — пульса нет.

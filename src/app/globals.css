@@ -114,22 +114,12 @@ html.lenis body {
 /* ============================================================
    MARQUEE (бегущая лента брендов)
    ============================================================ */
-@keyframes marquee {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-50%);
-  }
-}
-.animate-marquee {
-  animation: marquee 42s linear infinite;
+/* Лента ведётся JS-маркизой (rAF): transform двигает компонент BrandMarquee.
+   Скорость растёт от скорости скролла, мягко тормозит при наведении и
+   замирает вне экрана и в скрытой вкладке (правило вечного движения,
+   ночь 2 — IntersectionObserver + visibilitychange). */
+.marquee-track {
   will-change: transform;
-}
-/* Пауза при наведении (смена duration на лету заставляет ленту прыгать —
-   прогресс CSS-анимации пересчитывается) */
-.marquee-group:hover .animate-marquee {
-  animation-play-state: paused;
 }
 
 /* ============================================================
@@ -158,12 +148,13 @@ html.lenis body {
   }
 }
 
-/* Лента брендов: на паузе наведённый бренд резкий, остальные отступают */
-.animate-marquee span {
+/* Лента брендов: при наведении (JS тормозит ленту) бренд под курсором
+   резкий, остальные отступают — фокус-идиома сохранена */
+.marquee-track span {
   transition: color 300ms ease, opacity 300ms ease, filter 300ms ease;
 }
 @media (hover: hover) {
-  .marquee-group:hover .animate-marquee span:not(:hover) {
+  .marquee-group:hover .marquee-track span:not(:hover) {
     opacity: 0.35;
     filter: blur(1px);
   }
@@ -182,15 +173,13 @@ html.lenis body {
    ДОСТУПНОСТЬ: уважаем «уменьшить движение»
    ============================================================ */
 @media (prefers-reduced-motion: reduce) {
-  .animate-marquee {
-    animation: none;
-  }
+  /* JS-маркиза при reduced-motion не запускается вовсе (BrandMarquee) */
   /* Фокус-идиома при reduced-motion: без blur и без сжатия страницы */
   .menu-open .page-shell {
     transform: none;
   }
   .focus-list:hover .focus-item:not(:hover),
-  .marquee-group:hover .animate-marquee span:not(:hover) {
+  .marquee-group:hover .marquee-track span:not(:hover) {
     filter: none;
   }
   *,

@@ -150,6 +150,24 @@ export function VisionSim({
   const reduce = useReducedMotion();
   const containerRef = useRef<HTMLDivElement>(null);
   const handleRef = useRef<HTMLDivElement>(null);
+  // Первое взаимодействие (читают и гаптика снапа, и отмена толчка)
+  const touchedRef = useRef(false);
+  // Гаптика снапа ступени (Android): navigator.vibrate(6), не чаще раза
+  // в 40 мс, только при взаимодействии и не при reduced-motion. iOS молча.
+  const lastBuzz = useRef(0);
+  const buzz = () => {
+    if (reduce) return;
+    if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function")
+      return;
+    const now = Date.now();
+    if (now - lastBuzz.current < 40) return;
+    lastBuzz.current = now;
+    try {
+      navigator.vibrate(6);
+    } catch {
+      /* молча: платформа не поддержала */
+    }
+  };
 
   // Внутри компонент живёт в МОДУЛЕ диоптрий (0 … maxDiopters);
   // знак — вопрос отображения (signDisplay), не математики.
@@ -169,6 +187,8 @@ export function VisionSim({
     if (next !== valueRef.current) {
       valueRef.current = next;
       setValue(next);
+      // Снап ступени → гаптика, только если это взаимодействие (не толчок)
+      if (touchedRef.current) buzz();
     }
   });
 
@@ -198,8 +218,7 @@ export function VisionSim({
   const blur = Math.min(BLUR_MAX, severity * blurCoeff * width);
   const saturate = 1 - severity * SAT_LOSS;
 
-  // Первое взаимодействие: ref — мгновенная отмена толчка, state — подсказка
-  const touchedRef = useRef(false);
+  // Подсказка-состояние первого взаимодействия (touchedRef объявлен выше)
   const [touched, setTouched] = useState(false);
   const nudgeControls = useRef<AnimationPlaybackControls | null>(null);
 

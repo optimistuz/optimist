@@ -3,7 +3,7 @@ import { Logo } from "@/components/ui/logo";
 import { AnimatedLink } from "@/components/ui/animated-link";
 import { OpenStatusBadge } from "@/components/ui/open-status";
 import { Reveal } from "@/components/ui/reveal";
-import { nav, salons, site, socials } from "@/content/home";
+import { footerNote, nav, salons, site, socials } from "@/content/home";
 
 const telHref = (phone: string) => "tel:" + phone.replace(/[^\d+]/g, "");
 
@@ -114,6 +114,13 @@ export default function Footer() {
             Наверх ↑
           </AnimatedLink>
         </div>
+
+        {/* Тихий подарок долиставшим до конца — проявляется focus-входом */}
+        <Reveal variant="focus" className="mt-8">
+          <p className="text-xs leading-relaxed text-graphite/80">
+            {footerNote}
+          </p>
+        </Reveal>
       </Container>
     </footer>
   );
