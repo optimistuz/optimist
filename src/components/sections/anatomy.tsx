@@ -34,12 +34,27 @@ import { VIEWPORT } from "@/lib/motion";
    ------------------------------------------------------------------ */
 
 const VB_W = 760;
-const VB_H = 340;
-/** Вес штриха по частям 01–07: силуэт ободков тяжелее, линза —
-    световая линия, фурнитура средняя. Иерархия линий — то, что
-    отличает чертёж от схемы. Активная деталь получает +0.5. */
+const VB_H = 360;
+/** Чертёж крупнее: геометрия частей масштабируется вокруг центра
+    (380, 170) и опускается на 16 единиц — поля листа отданы рисунку.
+    Выноски и подписи живут в исходных координатах листа (вне масштаба),
+    их стартовые точки пересчитаны на увеличенные контуры. */
+const DRAW_SCALE = 1.16;
+const DRAW_TX = 380 * (1 - DRAW_SCALE);
+const DRAW_TY = 170 * (1 - DRAW_SCALE) + 16;
+/** Вес штриха по частям 01–07 (визуальные единицы листа; при рендере
+    делится на DRAW_SCALE, чтобы укрупнение не утяжеляло линию):
+    силуэт ободков тяжелее, линза — световая линия, фурнитура средняя.
+    Иерархия линий — то, что отличает чертёж от схемы. Активная деталь
+    получает +0.5. */
 const PART_STROKE = [2.1, 1.4, 1.8, 1.6, 1.8, 1.8, 1.8];
 const STROKE_ACTIVE_DELTA = 0.5;
+/** Невидимый жирный штрих — зона клика поверх каждой детали
+    (в единицах чертежа до масштаба). В перекрытии побеждает поздняя
+    деталь, поэтому у линзы ореол узкий (её главная мишень — вся
+    внутренность контура), иначе линза перехватывала бы клики по
+    линии ободка; у силуэта ободков ореол щедрый. */
+const PART_HIT = [18, 8, 14, 14, 14, 14, 16];
 
 /** ex/ey — вектор разнесённой сборки: куда деталь уезжает в разобранном
     виде (в единицах viewBox, вдоль «оси сборки» своего узла). Сборку
@@ -126,26 +141,29 @@ const PART_SHAPES: Shape[][] = [
   ],
 ];
 
-/** Волосяные линии-выноски: от детали к кромке чертежа, где сидит подпись. */
+/** Волосяные линии-выноски: от детали к кромке чертежа, где сидит
+    подпись. Стартовые точки — старые якоря, прогнанные через масштаб
+    чертежа (x·s + tx, y·s + ty). */
 const LEADERS = [
-  "M 160 54 L 110 40 L 6 40", // 01 → левая колонка
-  "M 161 160 L 120 206 L 6 206", // 02 → левая
-  "M 324 66 L 380 26 L 754 26", // 03 → правая
-  "M 309 158 L 250 232 L 6 232", // 04 → левая (выше профиля дужки)
-  "M 531 83 L 620 78 L 754 78", // 05 → правая
-  "M 400 248 L 600 206 L 754 206", // 06 → правая
-  "M 600 302 L 660 298 L 754 298", // 07 → правая
+  "M 124.8 51.4 L 96 40 L 6 40", // 01 → левая колонка
+  "M 126 174.4 L 92 216 L 6 216", // 02 → левая
+  "M 315 65.4 L 380 26 L 754 26", // 03 → правая
+  "M 297.6 172.1 L 244 246 L 6 246", // 04 → левая (выше профиля дужки)
+  "M 555.2 85.1 L 640 80 L 754 80", // 05 → правая
+  "M 403.2 276.5 L 600 224 L 754 224", // 06 → правая
+  "M 635.2 339.1 L 680 330 L 754 330", // 07 → правая
 ];
 
-/** Раскладка подписей по колонкам: side + вертикаль в % высоты чертежа. */
+/** Раскладка подписей по колонкам: side + вертикаль в % высоты чертежа
+    (= y горизонтального плеча выноски / VB_H). */
 const LABEL_POS: { side: "l" | "r"; top: string }[] = [
-  { side: "l", top: "11.8%" }, // 01
-  { side: "l", top: "60.6%" }, // 02
-  { side: "r", top: "7.6%" }, // 03
-  { side: "l", top: "68.2%" }, // 04
-  { side: "r", top: "22.9%" }, // 05
-  { side: "r", top: "60.6%" }, // 06
-  { side: "r", top: "87.6%" }, // 07
+  { side: "l", top: "11.1%" }, // 01
+  { side: "l", top: "60.0%" }, // 02
+  { side: "r", top: "7.2%" }, // 03
+  { side: "l", top: "68.3%" }, // 04
+  { side: "r", top: "22.2%" }, // 05
+  { side: "r", top: "62.2%" }, // 06
+  { side: "r", top: "91.7%" }, // 07
 ];
 
 /** Штрих рисуется: каскад по частям (~1.2 с на весь чертёж), один раз. */
@@ -167,37 +185,51 @@ const lateFade: Variants = {
   visible: { opacity: 1, transition: { duration: 0.5, delay: 1.15 } },
 };
 
+/** Статичная фигура без анимации штриха — для reduced-motion и зон клика. */
+function PlainShape({ shape }: { shape: Shape }) {
+  switch (shape.k) {
+    case "circle":
+      return <circle cx={shape.cx} cy={shape.cy} r={shape.r} />;
+    case "ellipse":
+      return (
+        <g transform={`rotate(${shape.rot} ${shape.cx} ${shape.cy})`}>
+          <ellipse cx={shape.cx} cy={shape.cy} rx={shape.rx} ry={shape.ry} />
+        </g>
+      );
+    case "line":
+      return <line x1={shape.x1} y1={shape.y1} x2={shape.x2} y2={shape.y2} />;
+    case "path":
+      return <path d={shape.d} />;
+  }
+}
+
 function ShapeEl({
   shape,
   reduce,
   delay,
   spread,
+  hit = false,
 }: {
   shape: Shape;
   reduce: boolean;
   delay: number;
   spread: MotionValue<number>;
+  hit?: boolean;
 }) {
   // Смещение разнесённой сборки: вектор × разнесённость своей детали.
   // CSS-px внутри svg равны единицам viewBox — смещения адаптивны сами.
   const x = useTransform(spread, (v) => (shape.ex ?? 0) * v);
   const y = useTransform(spread, (v) => (shape.ey ?? 0) * v);
 
-  if (reduce) {
-    switch (shape.k) {
-      case "circle":
-        return <circle cx={shape.cx} cy={shape.cy} r={shape.r} />;
-      case "ellipse":
-        return (
-          <g transform={`rotate(${shape.rot} ${shape.cx} ${shape.cy})`}>
-            <ellipse cx={shape.cx} cy={shape.cy} rx={shape.rx} ry={shape.ry} />
-          </g>
-        );
-      case "line":
-        return <line x1={shape.x1} y1={shape.y1} x2={shape.x2} y2={shape.y2} />;
-      case "path":
-        return <path d={shape.d} />;
-    }
+  if (reduce) return <PlainShape shape={shape} />;
+  // Зона клика не рисуется штрихом — просто едет вместе со своей деталью.
+  if (hit) {
+    if (!shape.ex && !shape.ey) return <PlainShape shape={shape} />;
+    return (
+      <motion.g style={{ x, y }}>
+        <PlainShape shape={shape} />
+      </motion.g>
+    );
   }
   let el: React.ReactElement;
   switch (shape.k) {
@@ -233,6 +265,14 @@ function ShapeEl({
  * первым. Отсюда окна на шкале прогресса, сдвинутые по номеру детали.
  * Плато «собрано» общее для всех: ~0.42–0.58 (чертёж у центра экрана).
  */
+type PartHandlers = {
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
+  onFocus: () => void;
+  onBlur: () => void;
+  onClick: () => void;
+};
+
 function PartGroup({
   shapes,
   index,
@@ -240,6 +280,7 @@ function PartGroup({
   active,
   reduce,
   progress,
+  handlers,
 }: {
   shapes: Shape[];
   index: number;
@@ -247,6 +288,7 @@ function PartGroup({
   active: number | null;
   reduce: boolean;
   progress: MotionValue<number>;
+  handlers: PartHandlers;
 }) {
   const t = index / (total - 1); // 0 у детали 01 … 1 у детали 07
   // Окна согласованы с видимостью чертежа: целиком он на экране примерно
@@ -262,27 +304,48 @@ function PartGroup({
   const sel = active === index;
   const dim = active !== null && !sel;
   return (
-    <g
-      stroke="currentColor"
-      className={sel ? "text-brand" : "text-ink"}
-      style={{
-        strokeWidth: PART_STROKE[index] + (sel ? STROKE_ACTIVE_DELTA : 0),
-        opacity: dim ? 0.25 : 1,
-        transition: reduce
-          ? undefined
-          : "opacity 250ms ease, stroke-width 250ms ease, stroke 250ms ease",
-      }}
-    >
-      {shapes.map((s, j) => (
-        <ShapeEl
-          key={j}
-          shape={s}
-          reduce={reduce}
-          spread={spread}
-          delay={index * 0.12 + j * 0.05}
-        />
-      ))}
-    </g>
+    <>
+      <g
+        stroke="currentColor"
+        pointerEvents="none"
+        className={sel ? "text-brand" : "text-ink"}
+        style={{
+          strokeWidth:
+            (PART_STROKE[index] + (sel ? STROKE_ACTIVE_DELTA : 0)) / DRAW_SCALE,
+          opacity: dim ? 0.25 : 1,
+          transition: reduce
+            ? undefined
+            : "opacity 250ms ease, stroke-width 250ms ease, stroke 250ms ease",
+        }}
+      >
+        {shapes.map((s, j) => (
+          <ShapeEl
+            key={j}
+            shape={s}
+            reduce={reduce}
+            spread={spread}
+            delay={index * 0.12 + j * 0.05}
+          />
+        ))}
+      </g>
+      {/* Зона клика: те же контуры невидимым жирным штрихом.
+          pointer-events:all ловит и внутренность замкнутых контуров —
+          клик в линзу выбирает линзу, в ободок — ободок; поздняя
+          деталь в перекрытии побеждает (линза поверх ободка).
+          Клавиатуре служат подписи-кнопки — здесь aria-hidden. */}
+      <g
+        aria-hidden
+        pointerEvents="all"
+        stroke="transparent"
+        strokeWidth={PART_HIT[index]}
+        className="cursor-pointer"
+        {...handlers}
+      >
+        {shapes.map((s, j) => (
+          <ShapeEl key={j} shape={s} reduce={reduce} spread={spread} delay={0} hit />
+        ))}
+      </g>
+    </>
   );
 }
 
@@ -339,7 +402,12 @@ export default function Anatomy() {
   const descContent =
     active !== null ? (
       <>
-        <span className="tabular-nums text-graphite">{anatomy.parts[active].num} — </span>
+        <span className="tabular-nums text-graphite">
+          {anatomy.parts[active].num}
+          {" · "}
+        </span>
+        <span className="font-medium">{anatomy.parts[active].name}</span>
+        {" — "}
         {anatomy.parts[active].desc}
       </>
     ) : touched ? null : (
@@ -365,13 +433,16 @@ export default function Anatomy() {
           </Reveal>
         </div>
 
-        {/* ---- Чертёж с подписями: одна зона видимости на всё ---- */}
+        {/* ---- Чертёж с подписями: одна зона видимости на всё.
+             На desktop блок выходит за колонку текста — экспонату
+             отдано больше листа (поля контейнера это позволяют,
+             горизонтального скролла нет вплоть до 1024). ---- */}
         <Wrapper
           ref={sceneRef}
           {...(reduce
             ? {}
             : { initial: "hidden", whileInView: "visible", viewport: VIEWPORT })}
-          className="relative"
+          className="relative lg:-mx-6 xl:-mx-10"
         >
           {/* Гутеры по бокам — место для колонок подписей на desktop */}
           <div className="relative lg:px-44">
@@ -384,36 +455,53 @@ export default function Anatomy() {
               strokeLinecap="round"
               strokeLinejoin="round"
             >
-              {/* Детали 01–07, каждая со своей фазой сборки */}
-              {PART_SHAPES.map((shapes, i) => (
-                <PartGroup
-                  key={anatomy.parts[i].num}
-                  shapes={shapes}
-                  index={i}
-                  total={PART_SHAPES.length}
-                  active={active}
-                  reduce={reduce}
-                  progress={scrollYProgress}
-                />
-              ))}
+              {/* Детали 01–07, каждая со своей фазой сборки; вся
+                  геометрия — внутри масштаба чертежа. Деталь выбирается
+                  и наведением/кликом по самому контуру — те же
+                  обработчики, что у подписи. */}
+              <g transform={`translate(${DRAW_TX} ${DRAW_TY}) scale(${DRAW_SCALE})`}>
+                {PART_SHAPES.map((shapes, i) => (
+                  <PartGroup
+                    key={anatomy.parts[i].num}
+                    shapes={shapes}
+                    index={i}
+                    total={PART_SHAPES.length}
+                    active={active}
+                    reduce={reduce}
+                    progress={scrollYProgress}
+                    handlers={labelHandlers(i)}
+                  />
+                ))}
+              </g>
 
-              {/* Выноски — только desktop (на мобиле подписи чипсами) */}
+              {/* Выноски — только desktop (на мобиле подписи чипсами).
+                  Выноска выбранной детали загорается фирменной линией —
+                  взгляд ведётся от контура к подписи. */}
               {reduce ? (
-                <g stroke="currentColor" strokeWidth={1} className="hidden text-line lg:block">
+                <g strokeWidth={1} className="pointer-events-none hidden lg:block">
                   {LEADERS.map((d, i) => (
-                    <path key={i} d={d} />
+                    <path
+                      key={i}
+                      d={d}
+                      stroke="currentColor"
+                      className={active === i ? "text-brand" : "text-line"}
+                    />
                   ))}
                 </g>
               ) : (
-                <motion.g style={{ opacity: specOpacity }} className="hidden lg:block">
-                  <motion.g
-                    variants={lateFade}
-                    stroke="currentColor"
-                    strokeWidth={1}
-                    className="text-line"
-                  >
+                <motion.g
+                  style={{ opacity: specOpacity }}
+                  className="pointer-events-none hidden lg:block"
+                >
+                  <motion.g variants={lateFade} strokeWidth={1}>
                     {LEADERS.map((d, i) => (
-                      <path key={i} d={d} />
+                      <path
+                        key={i}
+                        d={d}
+                        stroke="currentColor"
+                        className={active === i ? "text-brand" : "text-line"}
+                        style={{ transition: "stroke 250ms ease" }}
+                      />
                     ))}
                   </motion.g>
                 </motion.g>
@@ -428,7 +516,8 @@ export default function Anatomy() {
             >
               {anatomy.parts.map((part, i) => {
                 const pos = LABEL_POS[i];
-                const dim = active !== null && active !== i;
+                const on = active === i;
+                const dim = active !== null && !on;
                 const Label = reduce ? "div" : motion.div;
                 return (
                   <Label
@@ -451,7 +540,17 @@ export default function Anatomy() {
                         transition: reduce ? undefined : "filter 250ms ease, opacity 250ms ease",
                       }}
                     >
-                      <span className="font-medium tabular-nums text-graphite">{part.num} — </span>
+                      <span
+                        className={cn(
+                          "font-medium tabular-nums",
+                          on ? "text-brand-deep" : "text-graphite"
+                        )}
+                        style={{
+                          transition: reduce ? undefined : "color 200ms ease",
+                        }}
+                      >
+                        {part.num} —{" "}
+                      </span>
                       {part.name}
                     </button>
                   </Label>
@@ -480,14 +579,20 @@ export default function Anatomy() {
                       : "border-line text-graphite"
                   )}
                 >
-                  <span className="tabular-nums">{part.num}</span> {part.name}
+                  <span className={cn("tabular-nums", sel && "text-brand-deep")}>
+                    {part.num}
+                  </span>{" "}
+                  {part.name}
                 </button>
               );
             })}
           </div>
 
+          {/* Волосяная линия — как подпись под музейным экспонатом */}
+          <div aria-hidden className="mx-auto mt-10 h-px w-10 bg-line" />
+
           {/* Строка-описание выбранной детали: кроссфейд 200 мс */}
-          <div className="relative mx-auto mt-8 h-12 max-w-xl text-center sm:h-10">
+          <div className="relative mx-auto mt-5 h-12 max-w-xl text-center sm:h-14">
             <AnimatePresence initial={false}>
               <motion.p
                 key={descKey}
@@ -495,7 +600,7 @@ export default function Anatomy() {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: reduce ? 0 : 0.2 }}
-                className="absolute inset-x-0 top-0 text-sm leading-relaxed text-ink"
+                className="absolute inset-x-0 top-0 text-sm leading-relaxed text-ink sm:text-base"
               >
                 {descContent}
               </motion.p>
