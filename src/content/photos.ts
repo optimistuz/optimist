@@ -16,6 +16,7 @@ export type PhotoSlot =
   | "hero-float"
   | "deco-1"
   | "deco-2"
+  | "deco-3"
   | "frames-optical"
   | "frames-sun"
   | "frames-premium"
@@ -31,7 +32,9 @@ export const FLOAT_INTRINSIC: Partial<
   Record<PhotoSlot, { width: number; height: number }>
 > = {
   "hero-float": { width: 2400, height: 1600 },
+  "deco-1": { width: 1600, height: 1066 },
   "deco-2": { width: 1600, height: 1067 },
+  "deco-3": { width: 1600, height: 1066 },
 };
 
 export const PHOTOS: Record<PhotoSlot, string | null> = {
@@ -56,16 +59,23 @@ export const PHOTOS: Record<PhotoSlot, string | null> = {
   // Фото: Daniel Balarezo — https://www.pexels.com/photo/sunglasses-on-a-white-surface-11199907/
   "hero-float": "/photos/hero-float.jpg",
 
-  // Деко-точка А (стык манифеста и «Зрения») — ПУСТА: ни один кандидат
-  // не прошёл рубежи нормализации (gain ≤ 1.085) без выжигания тени.
-  // Пустой слот лучше заметного шва; ждёт собственной съёмки.
-  "deco-1": null,
+  // Деко-точка А («Салоны», левое поле): чёрная прямоугольная оптическая
+  // оправа анфас-3/4, глянцевый ацетат. Нормализовано scripts/normalize-white.ps1:
+  // gain R/G/B = 1.0581 / 1.0581 / 1.0669, рамка доведена до (255,255,255).
+  // Фото: Márcio Carvalho — https://www.pexels.com/photo/black-eyeglasses-on-white-background-25389281/
+  "deco-1": "/photos/deco-1.jpg",
 
   // Деко-точка Б («Экспертиза», у таблицы Сивцева): пара восьмиугольных
   // оправ, чёрный ацетат + золотой металл, сине-градиентные линзы.
   // Нормализовано: gain R/G/B = 1.0759 / 1.0759 / 1.0479.
   // Фото: Volker Meyer — https://www.pexels.com/photo/close-up-shot-of-sunglasses-on-a-white-surface-6837219/
   "deco-2": "/photos/deco-2.jpg",
+
+  // Деко-точка В («Позиционирование», правое поле): матовая чёрная оправа-
+  // щиток (flat-top), вид 3/4, графичный силуэт без бликов. Нормализовано:
+  // gain R/G/B = 1.0475 / 1.0537 / 1.0278, рамка доведена до (255,255,255).
+  // Фото: Márcio Carvalho — https://www.pexels.com/photo/close-up-on-elegant-black-sunglasses-against-white-background-25389285/
+  "deco-3": "/photos/deco-3.jpg",
 
   // Чёрная ацетатная оправа анфас крупным планом + черепаховая, светлый фон.
   // Фото: GlassesShop GS — https://www.pexels.com/photo/urban-chic-trendy-frames-for-everyday-look-28211037/

@@ -153,21 +153,31 @@ export default function NotFoundScene() {
         />
       </svg>
 
-      {/* Типографика таблицы Сивцева: строки убывающим кеглем, как в
-          кабинете окулиста — нижнюю видно «на грани чтения» */}
-      <h1 className="mt-10 font-serif font-light leading-none text-ink">
+      {/* Таблица Сивцева: строки убывающим кеглем И нарастающим расфокусом —
+          нижнюю «Из виду» видно буквально на грани зрения. Наведение на чарт
+          «наводит его на резкость» (group-hover снимает blur) — ты нашёл
+          страницу. Blur на тексте ≤3px (закон), статичный. */}
+      <h1 className="group mt-10 font-serif font-light leading-none text-ink">
         <span className="block text-display-lg">404</span>
-        <span aria-hidden className="mt-6 block text-3xl uppercase tracking-[0.3em] sm:text-4xl">
+        <span
+          aria-hidden
+          className="mt-6 block text-3xl uppercase tracking-[0.3em] blur-[0.6px] transition-[filter] duration-500 ease-soft group-hover:blur-none sm:text-4xl"
+        >
           Страница
         </span>
-        <span aria-hidden className="mt-4 block text-xl uppercase tracking-[0.35em] text-ink/80 sm:text-2xl">
+        <span
+          aria-hidden
+          className="mt-4 block text-xl uppercase tracking-[0.35em] text-ink/80 blur-[1.6px] transition-[filter] duration-500 ease-soft group-hover:blur-none sm:text-2xl"
+        >
           Потерялась
         </span>
-        <span aria-hidden className="mt-4 block text-xs uppercase tracking-[0.4em] text-graphite sm:text-sm">
+        <span
+          aria-hidden
+          className="mt-4 block text-xs uppercase tracking-[0.4em] text-graphite blur-[3px] transition-[filter] duration-500 ease-soft group-hover:blur-none sm:text-sm"
+        >
           Из виду
         </span>
         <span className="sr-only">Страница потерялась из виду</span>
-        {/* TODO: согласовать текст */}
       </h1>
       <div className="mt-10">
         <Magnetic>

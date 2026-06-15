@@ -48,8 +48,20 @@ export default function Atmosphere() {
         </FocalPlane>
       </motion.div>
 
-      {/* Подпись-капсула: стиль единый с капсулами слайдера «Зрение» */}
-      <span className="absolute bottom-6 left-6 z-10 rounded-full bg-ink/55 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-paper backdrop-blur-sm sm:bottom-8 sm:left-8">
+      {/* Кинематографичная эмердженция: тёмный кадр поднимается из светлой
+          секции сверху и растворяется в белой снизу — мягкий «фокус-переход»
+          вместо резкого стыка. Над фото, под подписью. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 z-[5] h-20 bg-gradient-to-b from-offwhite to-transparent sm:h-28"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] h-20 bg-gradient-to-t from-paper to-transparent sm:h-28"
+      />
+
+      {/* Подпись-капсула на премиальном тёмном стекле */}
+      <span className="glass-dark glass-sheen absolute bottom-6 left-6 z-10 rounded-full px-3 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-paper sm:bottom-8 sm:left-8">
         {atmosphere.caption}
       </span>
     </section>

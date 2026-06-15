@@ -87,6 +87,19 @@ export function IntroProvider({ children }: { children: ReactNode }) {
     setPhase(isHome ? decideIntro() : "done");
   }, [isHome]);
 
+  // СТРАХОВКА ЗАВЕРШЕНИЯ ИНТРО (исправляет «первый заход — контент скрыт»).
+  // Весь hero ждёт introDone (phase === "done"). Если прелоадер по любой
+  // причине не доиграл до done — холодная dev-компиляция, прерванная/не
+  // запустившаяся анимация оверлея, фоновая вкладка, медленная сеть — флаг
+  // оставался "playing", а CSS-страховка прячет лишь сам оверлей (не флипает
+  // introDone), и контент застревал скрытым до рефреша. Жёсткий таймаут
+  // гарантирует: контент появится максимум через ~2,2 с в любом случае.
+  useEffect(() => {
+    if (phase === "done") return;
+    const t = window.setTimeout(() => setPhase("done"), 2200);
+    return () => window.clearTimeout(t);
+  }, [phase]);
+
   return (
     <IntroContext.Provider value={phase === "done"}>
       {isHome && phase !== "done" && (

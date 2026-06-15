@@ -11,6 +11,7 @@ import { MotionFocus } from "@/components/ui/motion-focus";
 import { OpenStatusBadge } from "@/components/ui/open-status";
 import { SalonActions } from "@/components/ui/salon-actions";
 import { Placeholder } from "@/components/ui/placeholder";
+import { FloatFrame } from "@/components/ui/float-frame";
 import { salons, salonsSection, site } from "@/content/home";
 import { imageReveal } from "@/lib/motion";
 
@@ -20,8 +21,22 @@ import { imageReveal } from "@/lib/motion";
  */
 export default function Salons() {
   return (
-    <Section id="salons">
-      <Container className="lg:grid lg:grid-cols-12 lg:gap-8">
+    <Section id="salons" className="relative">
+      {/* Деко-оправа (точка А): чёрная оптическая в левом поле, ниже
+          sticky-шапки (низ левой колонки свободен — список филиалов справа).
+          z-0 под контентом. Только desktop, фокальная плоскость. */}
+      <FloatFrame
+        slot="deco-1"
+        rotate={7}
+        parallaxSpeed={0.9}
+        entrance="focus"
+        focal="scroll"
+        sectionTone="offwhite"
+        sizes="13vw"
+        widthClass="w-[13vw]"
+        className="absolute left-[-2vw] top-[58%] z-0 hidden lg:block"
+      />
+      <Container className="relative z-10 lg:grid lg:grid-cols-12 lg:gap-8">
         {/* Sticky-интро (desktop): шапка секции остаётся на месте,
             пока список филиалов скроллится мимо */}
         <div className="lg:col-span-5">

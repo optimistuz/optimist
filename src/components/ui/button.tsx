@@ -29,6 +29,7 @@ export function Button({
   className,
   type = "button",
   disabled = false,
+  onClick,
   "aria-label": ariaLabel,
 }: {
   children: ReactNode;
@@ -37,6 +38,7 @@ export function Button({
   className?: string;
   type?: "button" | "submit";
   disabled?: boolean;
+  onClick?: () => void;
   "aria-label"?: string;
 }) {
   const classes = cn(base, variants[variant], className);
@@ -62,6 +64,7 @@ export function Button({
       type={type}
       className={cn(classes, disabled && "pointer-events-none opacity-60")}
       disabled={disabled}
+      onClick={onClick}
       aria-label={ariaLabel}
     >
       {inner}

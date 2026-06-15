@@ -3,12 +3,30 @@ import { Container } from "@/components/ui/container";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import { Reveal } from "@/components/ui/reveal";
 import { PulseWord } from "@/components/ui/pulse-word";
+import { FloatFrame } from "@/components/ui/float-frame";
 import { positioning } from "@/content/home";
 
 export default function Positioning() {
   return (
-    <Section id="about">
-      <Container>
+    <Section id="about" className="relative">
+      {/* Деко-оправа (точка В): матовый щиток в правом поле, на уровне
+          НИЖНЕГО абзаца (body max-w-2xl слева — правая сторона свободна
+          на 1024–1920; вводный statement шире, max-w-4xl, поэтому оправа
+          опущена ниже него). z-0 под контентом и под «Шкалой наводки»
+          (z-40): навигацию не ломает и не перекрывает. Только desktop,
+          фокальная плоскость (резка у центра, мягчеет к кромкам). */}
+      <FloatFrame
+        slot="deco-3"
+        rotate={-7}
+        parallaxSpeed={0.88}
+        entrance="focus"
+        focal="scroll"
+        sectionTone="offwhite"
+        sizes="12vw"
+        widthClass="w-[12vw]"
+        className="absolute right-[-3vw] top-[66%] z-0 hidden lg:block"
+      />
+      <Container className="relative z-10">
         <div className="max-w-4xl">
           <Reveal>
             <Eyebrow>{positioning.eyebrow}</Eyebrow>

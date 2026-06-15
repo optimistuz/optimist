@@ -12,6 +12,7 @@ import Testimonials from "@/components/sections/testimonials";
 import Salons from "@/components/sections/salons";
 import Faq from "@/components/sections/faq";
 import CTA from "@/components/sections/cta";
+import { FocalSeam } from "@/components/ui/focal-seam";
 
 export default function Home() {
   return (
@@ -20,10 +21,14 @@ export default function Home() {
       <Positioning />
       <Vision />
       <Services />
+      {/* Шов наводки: услуги → экспертиза (стык глав, мотив редкости) */}
+      <FocalSeam />
       <Expertise />
       <Anatomy />
       <Brands />
       <Collections />
+      {/* Шов наводки: коллекции → подбор */}
+      <FocalSeam />
       <FitQuiz />
       <Atmosphere />
       <Testimonials />

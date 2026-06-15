@@ -58,9 +58,11 @@ export default function Header() {
     <header
       className={cn(
         "fixed inset-x-0 top-0 z-50 transition-all duration-[400ms] ease-soft",
-        // Стеклянная шапка: мир расфокусируется за ней (идиома фокуса)
+        // Стеклянная шапка: мир расфокусируется за ней (идиома фокуса).
+        // .glass — единый премиальный рецепт (тинт + blur+saturate + кромка
+        // + верхний блик + тень глубины); до скролла шапка прозрачна.
         scrolled
-          ? "border-b border-line bg-offwhite/70 shadow-[0_6px_24px_-14px_rgba(13,13,13,0.18)] backdrop-blur-md"
+          ? "glass border-x-0 border-t-0"
           : "border-b border-transparent bg-offwhite/0",
         // focus-within возвращает спрятанную шапку при табе с клавиатуры
         hidden && "-translate-y-full focus-within:translate-y-0"

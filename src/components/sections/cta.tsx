@@ -11,7 +11,14 @@ const telHref = "tel:" + site.phonePrimary.replace(/[^\d+]/g, "");
 
 export default function CTA() {
   return (
-    <Section id="cta" tone="ink" className="overflow-hidden">
+    <Section id="cta" tone="ink" className="relative overflow-hidden">
+      {/* Кинематографичная эмердженция: тёмный блок «поднимается» из светлой
+          секции выше — мягкий fade-to-dark вместо резкого стыка. Лежит в
+          верхнем паддинге секции, над контентом не мешает. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-offwhite via-offwhite/35 to-transparent sm:h-40"
+      />
       <Container>
         <div className="grid grid-cols-1 gap-14 lg:grid-cols-2 lg:gap-20">
           {/* Слева — заголовок и текст */}
@@ -60,9 +67,13 @@ export default function CTA() {
             </Reveal>
           </div>
 
-          {/* Справа — форма записи (на мобильном — под текстом) */}
+          {/* Справа — форма записи в «парящей» стеклянной панели
+              (glass-on-dark: светящаяся плёнка на ink). На мобильном — под
+              текстом. */}
           <Reveal delay={0.1} className="lg:pt-2">
-            <BookingForm />
+            <div className="glass-on-dark glass-sheen rounded-2xl p-6 sm:p-8 lg:p-9">
+              <BookingForm />
+            </div>
           </Reveal>
         </div>
       </Container>

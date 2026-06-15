@@ -7,6 +7,7 @@ import { Container } from "@/components/ui/container";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import { Reveal, RevealLines } from "@/components/ui/reveal";
 import { MotionFocus } from "@/components/ui/motion-focus";
+import { FloatFrame } from "@/components/ui/float-frame";
 import { services } from "@/content/home";
 import { fadeUp, staggerParent, VIEWPORT } from "@/lib/motion";
 
@@ -64,8 +65,23 @@ export default function Services() {
   const reduce = useReduceAfterMount();
 
   return (
-    <Section id="services">
-      <Container className="lg:grid lg:grid-cols-12 lg:gap-8">
+    <Section id="services" className="relative">
+      {/* Деко-оправа (левое поле): матовый щиток, низ левой колонки
+          свободен (интро sticky сверху, список услуг справа) — паттерн
+          секции «Салоны». z-0 под контентом, только desktop, фокальная
+          плоскость. Переиспользует deco-3 с другим наклоном/масштабом. */}
+      <FloatFrame
+        slot="deco-3"
+        rotate={-6}
+        parallaxSpeed={0.9}
+        entrance="focus"
+        focal="scroll"
+        sectionTone="offwhite"
+        sizes="12vw"
+        widthClass="w-[12vw]"
+        className="absolute left-[-2vw] top-[58%] z-0 hidden lg:block"
+      />
+      <Container className="relative z-10 lg:grid lg:grid-cols-12 lg:gap-8">
         {/* Sticky-интро (desktop): шапка секции остаётся на месте,
             пока список услуг скроллится мимо */}
         <div className="lg:col-span-5">

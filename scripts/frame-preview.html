@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<style>
+  html,body{margin:0;background:#0e0d0c;}
+  canvas{display:block;}
+  .label{position:absolute;color:#cdbfae;font:600 15px/1 -apple-system,Segoe UI,sans-serif;letter-spacing:.04em;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+/* ===== ПОРТ ГЕОМЕТРИИ И РЕНДЕРА ИЗ frame-overlay.tsx =====
+   Стенд держит ОДНУ копию кода, идентичную источнику, чтобы то,
+   что видно на скриншоте, совпадало с продакшеном. Меняем здесь —
+   потом портируем обратно. ====================================== */
+
+const ACET_SCALE = 0.84;
+const METAL_SCALE = 0.9;
+
+function roundLens(cx, cy, r, q){ const p=new Path2D(); p.ellipse(cx,cy,Math.max(.5,r*q),Math.max(.5,r),0,0,Math.PI*2); return p; }
+function ellipseLens(cx,cy,rx,ry,q){ const p=new Path2D(); p.ellipse(cx,cy,Math.max(.5,rx*q),Math.max(.5,ry),0,0,Math.PI*2); return p; }
+function rectLens(cx,cy,hw,hh,q,rf){
+  const p=new Path2D(); const HW=hw*q; const xl=cx-HW,xr=cx+HW,yt=cy-hh,yb=cy+hh;
+  const r=Math.min(rf*Math.min(HW,hh),HW*.85,hh*.85);
+  p.moveTo(xl+r,yt); p.lineTo(xr-r,yt); p.quadraticCurveTo(xr,yt,xr,yt+r);
+  p.lineTo(xr,yb-r); p.quadraticCurveTo(xr,yb,xr-r,yb); p.lineTo(xl+r,yb);
+  p.quadraticCurveTo(xl,yb,xl,yb-r); p.lineTo(xl,yt+r); p.quadraticCurveTo(xl,yt,xl+r,yt); p.closePath(); return p;
+}
+function aviatorLens(cx,cy,hw,hh,q,s){
+  const p=new Path2D(); const X=u=>cx+s*u*hw*q, Y=v=>cy+v*hh;
+  p.moveTo(X(-.92),Y(-.60));
+  p.bezierCurveTo(X(-.36),Y(-.90),X(.46),Y(-.94),X(.96),Y(-.56));
+  p.bezierCurveTo(X(1.05),Y(-.04),X(.96),Y(.50),X(.60),Y(.84));
+  p.bezierCurveTo(X(.34),Y(1.06),X(-.12),Y(1.12),X(-.50),Y(.94));
+  p.bezierCurveTo(X(-.74),Y(.80),X(-.96),Y(.22),X(-.92),Y(-.60)); p.closePath(); return p;
+}
+function catLens(cx,cy,hw,hh,q,s){
+  const p=new Path2D(); const X=u=>cx+s*u*hw*q, Y=v=>cy+v*hh;
+  p.moveTo(X(-.85),Y(-.5));
+  p.bezierCurveTo(X(-.2),Y(-.92),X(.55),Y(-1.06),X(1),Y(-.92));
+  p.bezierCurveTo(X(1.06),Y(-.44),X(1),Y(.2),X(.66),Y(.6));
+  p.bezierCurveTo(X(.32),Y(.96),X(-.32),Y(.96),X(-.7),Y(.62));
+  p.bezierCurveTo(X(-.92),Y(.44),X(-.9),Y(-.12),X(-.85),Y(-.5)); p.closePath(); return p;
+}
+function hexLens(cx,cy,hw,hh,q){
+  const p=new Path2D(); const X=u=>cx+u*hw*q, Y=v=>cy+v*hh;
+  p.moveTo(X(-.46),Y(-1)); p.lineTo(X(.46),Y(-1)); p.lineTo(X(1),Y(-.04));
+  p.lineTo(X(.46),Y(1)); p.lineTo(X(-.46),Y(1)); p.lineTo(X(-1),Y(-.04)); p.closePath(); return p;
+}
+function lineP(pts){ const p=new Path2D(); p.moveTo(pts[0][0],pts[0][1]); for(let i=1;i<pts.length;i++)p.lineTo(pts[i][0],pts[i][1]); return p; }
+function arc(il,ir,y,d){ const p=new Path2D(); const s=ir-il; p.moveTo(il,y); p.bezierCurveTo(il+s*.26,y-d,ir-s*.26,y-d,ir,y); return p; }
+function templeArms(ol,or_,y,ipd){
+  const p=new Path2D(); const hinge=ipd*.05, reach=ipd*.22, lift=ipd*.05;
+  p.moveTo(or_,y); p.lineTo(or_+hinge,y-lift*.2); p.lineTo(or_+hinge+reach,y-lift);
+  p.moveTo(ol,y); p.lineTo(ol-hinge,y-lift*.2); p.lineTo(ol-hinge-reach,y-lift); return p;
+}
+function pair(shape,xh,lensCY,hw,hh,sqL,sqR,scale){
+  const top=lensCY-hh, bot=lensCY+hh;
+  return [
+    {outer:shape(-xh,hw,hh,sqL),inner:shape(-xh,hw*scale,hh*scale,sqL),cx:-xh,hw,top,bot},
+    {outer:shape(xh,hw,hh,sqR),inner:shape(xh,hw*scale,hh*scale,sqR),cx:xh,hw,top,bot},
+  ];
+}
+
+const round={build({ipd,lensCY,squashL,squashR}){const xh=ipd/2,r=ipd*.37;return{
+  lenses:pair((c,hwv,_h,q)=>roundLens(c,lensCY,hwv,q),xh,lensCY,r,r,squashL,squashR,METAL_SCALE),
+  bridge:arc(-xh+r*squashL,xh-r*squashR,lensCY-r*.34,r*.36),
+  temples:templeArms(-xh-r*squashL,xh+r*squashR,lensCY-r*.1,ipd),metal:true};}};
+const oval={build({ipd,lensCY,squashL,squashR}){const xh=ipd/2,rx=ipd*.36,ry=ipd*.30;return{
+  lenses:pair((c,hwv,hhv,q)=>ellipseLens(c,lensCY,hwv,hhv,q),xh,lensCY,rx,ry,squashL,squashR,ACET_SCALE),
+  bridge:arc(-xh+rx*squashL,xh-rx*squashR,lensCY-ry*.28,ry*.30),
+  temples:templeArms(-xh-rx*squashL,xh+rx*squashR,lensCY-ry*.12,ipd),metal:false};}};
+const rectangle={build({ipd,lensCY,squashL,squashR}){const xh=ipd/2,hw=ipd*.39,hh=ipd*.29;return{
+  lenses:pair((c,hwv,hhv,q)=>rectLens(c,lensCY,hwv,hhv,q,.3),xh,lensCY,hw,hh,squashL,squashR,ACET_SCALE),
+  bridge:arc(-xh+hw*squashL,xh-hw*squashR,lensCY-hh*.5,hh*.3),
+  temples:templeArms(-xh-hw*squashL,xh+hw*squashR,lensCY-hh*.45,ipd),metal:false};}};
+const square={build({ipd,lensCY,squashL,squashR}){const xh=ipd/2,hw=ipd*.36,hh=ipd*.33;return{
+  lenses:pair((c,hwv,hhv,q)=>rectLens(c,lensCY,hwv,hhv,q,.16),xh,lensCY,hw,hh,squashL,squashR,ACET_SCALE),
+  bridge:arc(-xh+hw*squashL,xh-hw*squashR,lensCY-hh*.56,hh*.26),
+  temples:templeArms(-xh-hw*squashL,xh+hw*squashR,lensCY-hh*.5,ipd),metal:false};}};
+const clubmaster={build({ipd,lensCY,squashL,squashR}){const xh=ipd/2,hw=ipd*.37,hh=ipd*.3,rf=.28;
+  const yt=lensCY-hh,HWl=hw*squashL,HWr=hw*squashR;
+  const rL=Math.min(rf*Math.min(HWl,hh),HWl*.85,hh*.85),rR=Math.min(rf*Math.min(HWr,hh),HWr*.85,hh*.85);
+  const dip=hh*.12;
+  const brow=new Path2D();
+  // связная браулайн-бровь: от внешних углов обеих линз к лёгкому провису у переносицы
+  brow.moveTo(-xh-HWl,yt+rL*1.5); brow.quadraticCurveTo(-xh-HWl,yt,-xh-HWl+rL,yt);
+  brow.lineTo(-xh+HWl,yt); brow.quadraticCurveTo(-ipd*.05,yt+dip*.35,0,yt+dip);
+  brow.quadraticCurveTo(ipd*.05,yt+dip*.35,xh-HWr,yt);
+  brow.lineTo(xh+HWr-rR,yt); brow.quadraticCurveTo(xh+HWr,yt,xh+HWr,yt+rR*1.5);
+  return{lenses:pair((c,hwv,hhv,q)=>rectLens(c,lensCY,hwv,hhv,q,rf),xh,lensCY,hw,hh,squashL,squashR,METAL_SCALE),
+  bridge:arc(-xh+HWl,xh-HWr,lensCY-hh*.5,hh*.24),temples:templeArms(-xh-HWl,xh+HWr,lensCY-hh*.55,ipd),brow,metal:true};}};
+const aviator={build({ipd,lensCY,squashL,squashR}){const xh=ipd/2,hw=ipd*.44,hh=ipd*.40;
+  const barY=lensCY-hh*.58,br=ipd*.34;return{
+  lenses:[...pair((c,hwv,hhv,q)=>aviatorLens(c,lensCY,hwv,hhv,q,-1),xh,lensCY,hw,hh,squashL,squashL,.92).slice(0,1),
+          ...pair((c,hwv,hhv,q)=>aviatorLens(c,lensCY,hwv,hhv,q,1),xh,lensCY,hw,hh,squashR,squashR,.92).slice(1,2)],
+  bridge:arc(-ipd*.12,ipd*.12,lensCY-hh*.18,hh*.15),bar:lineP([[-br,barY],[br,barY]]),
+  temples:templeArms(-xh-hw*squashL,xh+hw*squashR,lensCY-hh*.42,ipd),metal:true};}};
+const catEye={build({ipd,lensCY,squashL,squashR}){const xh=ipd/2,hw=ipd*.37,hh=ipd*.31;return{
+  lenses:[...pair((c,hwv,hhv,q)=>catLens(c,lensCY,hwv,hhv,q,-1),xh,lensCY,hw,hh,squashL,squashL,ACET_SCALE).slice(0,1),
+          ...pair((c,hwv,hhv,q)=>catLens(c,lensCY,hwv,hhv,q,1),xh,lensCY,hw,hh,squashR,squashR,ACET_SCALE).slice(1,2)],
+  bridge:arc(-xh+hw*.85*squashL,xh-hw*.85*squashR,lensCY-hh*.44,hh*.36),
+  temples:templeArms(-xh-hw*squashL,xh+hw*squashR,lensCY-hh*.52,ipd),metal:false};}};
+const geometric={build({ipd,lensCY,squashL,squashR}){const xh=ipd/2,hw=ipd*.37,hh=ipd*.32;return{
+  lenses:pair((c,hwv,hhv,q)=>hexLens(c,lensCY,hwv,hhv,q),xh,lensCY,hw,hh,squashL,squashR,ACET_SCALE),
+  bridge:arc(-xh+hw*.46*squashL,xh-hw*.46*squashR,lensCY-hh*.74,hh*.12),
+  temples:templeArms(-xh-hw*squashL,xh+hw*squashR,lensCY-hh*.04,ipd),metal:false};}};
+
+const BUILDERS={round,oval,rectangle,square,clubmaster,aviator,catEye,geometric};
+
+/* ===== РЕНДЕР (порт strokeFrame/drawLens/strokeMat) ===== */
+let ctx;
+function strokeMat(path,w,metal){
+  ctx.lineWidth=w; ctx.strokeStyle=metal?"#7d6234":"#1b1611"; ctx.stroke(path);
+  ctx.lineWidth=Math.max(1,w*.34); ctx.strokeStyle=metal?"rgba(255,240,205,.55)":"rgba(255,250,240,.38)"; ctx.stroke(path);
+}
+function drawLens(l,metal){
+  const {outer,inner,cx,hw,top,bot}=l; const h=bot-top;
+  // (a) внешнее AO-кольцо — мягкая тень снаружи ободка, отрыв от кожи
+  ctx.save(); ctx.filter="blur(2px)";
+  ctx.lineWidth=metal?3:4.5; ctx.strokeStyle="rgba(18,10,4,.35)"; ctx.stroke(outer);
+  ctx.restore();
+  // (b) стекло под ободком (полупрозрачно — глаза видны)
+  ctx.save(); ctx.clip(outer);
+  const gg=ctx.createLinearGradient(0,top,0,bot);
+  gg.addColorStop(0,"rgba(205,218,228,.17)"); gg.addColorStop(.5,"rgba(190,205,216,.05)"); gg.addColorStop(1,"rgba(140,130,120,.045)");
+  ctx.fillStyle=gg; ctx.fillRect(cx-hw-6,top-6,hw*2+12,h+12);
+  const lft=cx-hw;
+  ctx.fillStyle="rgba(255,255,255,.12)"; ctx.beginPath();
+  ctx.moveTo(lft-2,top+h*.20); ctx.lineTo(lft+hw*1,top-8); ctx.lineTo(lft+hw*1.28,top-8); ctx.lineTo(lft+hw*.18,top+h*.62); ctx.closePath(); ctx.fill();
+  ctx.fillStyle="rgba(255,255,255,.06)"; ctx.beginPath();
+  ctx.moveTo(lft+hw*1.34,top-8); ctx.lineTo(lft+hw*1.56,top-8); ctx.lineTo(lft+hw*.6,top+h*.52); ctx.lineTo(lft+hw*.44,top+h*.52); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  // (c) тело ободка — базовый вертикальный градиент
+  const band=new Path2D(); band.addPath(outer); band.addPath(inner);
+  const g=ctx.createLinearGradient(0,top,0,bot);
+  if(metal){ g.addColorStop(0,"#f0d89a"); g.addColorStop(.32,"#caa55f"); g.addColorStop(.62,"#8a6c39"); g.addColorStop(1,"#49371a"); }
+  else{ g.addColorStop(0,"#4d4236"); g.addColorStop(.4,"#241d15"); g.addColorStop(1,"#0a0805"); }
+  ctx.fillStyle=g; ctx.fill(band,"evenodd");
+  // (d) тубус-объём: внутри ободка свет сверху-слева + затемнение снизу-справа (сечение валика)
+  ctx.save(); ctx.clip(band,"evenodd");
+  const rg=ctx.createRadialGradient(cx-hw*.55,top+h*.10,h*.04,cx-hw*.18,top+h*.4,hw*1.75);
+  rg.addColorStop(0,metal?"rgba(255,246,212,.62)":"rgba(150,138,120,.5)"); rg.addColorStop(1,"rgba(255,255,255,0)");
+  ctx.fillStyle=rg; ctx.fillRect(cx-hw-8,top-8,hw*2+16,h+16);
+  const rg2=ctx.createRadialGradient(cx+hw*.5,bot-h*.04,h*.04,cx+hw*.2,bot,hw*1.75);
+  rg2.addColorStop(0,"rgba(0,0,0,.5)"); rg2.addColorStop(1,"rgba(0,0,0,0)");
+  ctx.fillStyle=rg2; ctx.fillRect(cx-hw-8,top-8,hw*2+16,h+16);
+  ctx.restore();
+  // (e) спекуляр-кромка сверху
+  const hg=ctx.createLinearGradient(0,top,0,top+h*.5);
+  hg.addColorStop(0,metal?"rgba(255,250,226,.95)":"rgba(255,250,242,.6)"); hg.addColorStop(1,"rgba(255,255,255,0)");
+  ctx.lineWidth=metal?1.5:2.4; ctx.strokeStyle=hg; ctx.stroke(outer);
+  // (f) тёмная фаска по проёму
+  ctx.lineWidth=1.4; ctx.strokeStyle="rgba(0,0,0,.5)"; ctx.stroke(inner);
+}
+// Браулайн-бровь как МАТЕРИАЛ (не плоский толстый штрих): тело-градиент
+// свет→тень + спекуляр сверху + затемнение снизу — то же сечение, что у
+// ободка, иначе бровь читается мультяшной.
+function drawBrow(brow,t,ipd){
+  const w=ipd*0.105, top=t-w*0.62, bot=t+w*1.05;
+  ctx.save(); ctx.filter="blur(2px)"; ctx.lineWidth=w+3; ctx.strokeStyle="rgba(10,6,3,0.32)"; ctx.stroke(brow); ctx.restore();
+  const bg=ctx.createLinearGradient(0,top,0,bot);
+  bg.addColorStop(0,"#4d4236"); bg.addColorStop(0.45,"#241d15"); bg.addColorStop(1,"#0a0805");
+  ctx.lineWidth=w; ctx.strokeStyle=bg; ctx.stroke(brow);
+  const sg=ctx.createLinearGradient(0,top,0,bot);
+  sg.addColorStop(0,"rgba(255,250,242,0.6)"); sg.addColorStop(0.22,"rgba(255,250,242,0)");
+  ctx.strokeStyle=sg; ctx.stroke(brow);
+  const dg=ctx.createLinearGradient(0,top,0,bot);
+  dg.addColorStop(0.68,"rgba(0,0,0,0)"); dg.addColorStop(1,"rgba(0,0,0,0.5)");
+  ctx.strokeStyle=dg; ctx.stroke(brow);
+}
+// Носоупоры металлических оправ: тонкий металлический рычажок + мягкая
+// силиконовая подушечка (полупрозрачная, с бликом). Низ наружу, верх к центру.
+function drawNosePads(ipd,lensCY){
+  const padLen=ipd*0.105, padW=ipd*0.033, tilt=0.34;
+  for(const s of [-1,1]){
+    const cx=s*ipd*0.085, cy=lensCY+ipd*0.13;
+    const ax=s*ipd*0.028, ay=lensCY+ipd*0.01;
+    const px=cx-s*Math.sin(tilt)*padLen*0.85, py=cy-Math.cos(tilt)*padLen*0.85;
+    ctx.lineCap="round";
+    ctx.lineWidth=ipd*0.017; ctx.strokeStyle="#8a6c39";
+    ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(px,py); ctx.stroke();
+    ctx.lineWidth=ipd*0.006; ctx.strokeStyle="rgba(255,240,205,0.55)";
+    ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(px,py); ctx.stroke();
+    ctx.save(); ctx.translate(cx,cy); ctx.rotate(-s*tilt);
+    ctx.save(); ctx.filter="blur(1.5px)"; ctx.fillStyle="rgba(0,0,0,0.22)";
+    ctx.beginPath(); ctx.ellipse(1,2,padW,padLen,0,0,Math.PI*2); ctx.fill(); ctx.restore();
+    const pg=ctx.createLinearGradient(-padW,-padLen,padW,padLen);
+    pg.addColorStop(0,"rgba(228,233,238,0.55)"); pg.addColorStop(1,"rgba(120,130,140,0.34)");
+    ctx.fillStyle=pg; ctx.beginPath(); ctx.ellipse(0,0,padW,padLen,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle="rgba(255,255,255,0.5)"; ctx.beginPath(); ctx.ellipse(-padW*0.28,-padLen*0.42,padW*0.34,padLen*0.28,0,0,Math.PI*2); ctx.fill();
+    ctx.lineWidth=ipd*0.005; ctx.strokeStyle="rgba(255,255,255,0.4)"; ctx.beginPath(); ctx.ellipse(0,0,padW,padLen,0,0,Math.PI*2); ctx.stroke();
+    ctx.restore();
+  }
+}
+function strokeFrame(parts,a){
+  const {lenses,bridge,temples,brow,bar,metal}=parts; const ipd=a.ipd;
+  ctx.save(); ctx.translate(a.cx,a.cy); ctx.rotate(a.angle); ctx.lineJoin="round"; ctx.lineCap="round";
+  ctx.save(); ctx.filter="blur(6px)"; ctx.globalAlpha=.2; ctx.fillStyle="#000"; ctx.translate(1.5,ipd*.05);
+  lenses.forEach(l=>ctx.fill(l.outer)); ctx.restore();
+  strokeMat(temples,metal?ipd*.03:ipd*.045,metal);
+  strokeMat(bridge,metal?ipd*.032:ipd*.05,metal);
+  lenses.forEach(l=>drawLens(l,metal));
+  if(metal)drawNosePads(ipd,a.lensCY);
+  if(bar)strokeMat(bar,ipd*.045,true);
+  if(brow)drawBrow(brow,lenses[0].top,ipd);
+  ctx.restore();
+}
+
+/* ===== СЦЕНА: сетка 4×2, на каждом «лицо» (кожа+глаза) ===== */
+const ALL=["round","oval","rectangle","square","clubmaster","aviator","catEye","geometric"];
+const Q=new URLSearchParams(location.search);
+const KINDS=(Q.get("only")?Q.get("only").split(","):ALL);
+const COLS=+(Q.get("cols")||4);
+const ROWS=Math.ceil(KINDS.length/COLS);
+const CELL_W=+(Q.get("cw")||380), CELL_H=+(Q.get("ch")||420), IPD=+(Q.get("ipd")||150);
+const W=COLS*CELL_W, H=ROWS*CELL_H;
+const canvas=document.getElementById("c");
+const dpr=2;
+canvas.style.width=W+"px"; canvas.style.height=H+"px";
+canvas.width=W*dpr; canvas.height=H*dpr;
+ctx=canvas.getContext("2d");
+ctx.scale(dpr,dpr);
+
+function drawFace(cx,cy,ipd,lensCY){
+  // кожа
+  ctx.save();
+  const skin=ctx.createRadialGradient(cx,cy+10,ipd*.2,cx,cy+10,ipd*1.5);
+  skin.addColorStop(0,"#d9b79a"); skin.addColorStop(1,"#b88f6f");
+  ctx.fillStyle=skin;
+  ctx.beginPath(); ctx.ellipse(cx,cy+ipd*.15,ipd*1.05,ipd*1.45,0,0,Math.PI*2); ctx.fill();
+  // глаза за линзами (в локальных коорд. lensCY относительно cy)
+  const ey=cy+lensCY; const exh=ipd/2;
+  for(const sx of [-1,1]){
+    const ex=cx+sx*exh;
+    ctx.fillStyle="#f4ece4"; ctx.beginPath(); ctx.ellipse(ex,ey,ipd*.16,ipd*.09,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle="#5b4636"; ctx.beginPath(); ctx.arc(ex,ey,ipd*.058,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle="#1a1410"; ctx.beginPath(); ctx.arc(ex,ey,ipd*.026,0,Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+const labels=[];
+KINDS.forEach((k,i)=>{
+  const col=i%COLS, row=(i/COLS|0);
+  const cx=col*CELL_W+CELL_W/2, cy=row*CELL_H+CELL_H/2-10;
+  const a={cx,cy,angle:0,ipd:IPD,lensCY:IPD*0.07,squashL:1,squashR:1};
+  drawFace(cx,cy,IPD,a.lensCY);
+  strokeFrame(BUILDERS[k].build(a),a);
+  labels.push({k,x:col*CELL_W+16,y:row*CELL_H+CELL_H-26});
+});
+// метки HTML поверх
+labels.forEach(l=>{ const d=document.createElement("div"); d.className="label"; d.textContent=l.k; d.style.left=l.x+"px"; d.style.top=l.y+"px"; document.body.appendChild(d); });
+document.title="READY";
+</script>
+</body>
+</html>

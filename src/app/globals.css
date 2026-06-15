@@ -8,9 +8,9 @@
 :root {
   --background: #f6f4ef;
   --foreground: #0d0d0d;
-  /* Дисплейный шрифт заголовков — переключается dev-инструментом
-     на время выбора владельцем (Cormorant / Prata / Jost) */
-  --font-display: var(--font-cormorant);
+  /* Дисплейный шрифт заголовков — вариативная Literata (ось opsz):
+     носитель эффекта «наведения» заголовков */
+  --font-display: var(--font-literata);
 }
 
 html {
@@ -178,6 +178,112 @@ html.lenis body {
   .rail-list:hover .rail-item:not(:hover) {
     opacity: 0.4;
     filter: blur(1px);
+  }
+}
+
+/* ============================================================
+   СТЕКЛО (glassmorphism) — премиальная матовая поверхность
+   Рецепт по референсам 2026: тинт + backdrop-blur(16–18px)+saturate
+   (насыщает фон сквозь стекло), волосяная СВЕТЯЩАЯСЯ кромка 1px (она
+   и «продаёт» физику стекла), верхний внутренний блик и мягкая тень
+   глубины. Блюр НЕ анимируется — дорого на GPU. Деградации обязательны:
+   без backdrop-filter (старый б-зер) — почти сплошная заливка;
+   prefers-reduced-transparency — сплошная заливка.
+   Применять ТОЧЕЧНО (хром, подписи на фото, тёмные секции), не на всё.
+   ============================================================ */
+@layer components {
+  .glass {
+    background-color: rgba(246, 244, 239, 0.62);
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    box-shadow:
+      0 10px 34px -16px rgba(13, 13, 13, 0.22),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.72);
+  }
+  .glass-dark {
+    background-color: rgba(13, 13, 13, 0.46);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow:
+      0 14px 44px -18px rgba(0, 0, 0, 0.6),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.16);
+  }
+  /* Стекло-панель НА ТЁМНОМ фоне (ink). Тёмный тинт там невидим (нечего
+     матировать поверх плоского чёрного), поэтому здесь СВЕТЯЩАЯСЯ ПЛЁНКА:
+     тонкий белый film + кромка + верхний блик + глубокая тень — панель
+     «приподнимается» над чёрным, ловя свет, как настоящее тёмное стекло. */
+  .glass-on-dark {
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow:
+      0 22px 60px -28px rgba(0, 0, 0, 0.7),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.14);
+  }
+  /* Градиентная кромка-«сияние» (блик идёт по верх-левой грани, как на
+     настоящем стекле): тонкая псевдо-рамка поверх содержимого. */
+  .glass-sheen {
+    position: relative;
+    isolation: isolate;
+  }
+  .glass-sheen::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.85),
+      rgba(255, 255, 255, 0.08) 38%,
+      rgba(255, 255, 255, 0) 60%
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    z-index: 1;
+  }
+  @supports (
+    (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+  ) {
+    .glass {
+      background-color: rgba(246, 244, 239, 0.5);
+      -webkit-backdrop-filter: blur(16px) saturate(1.5);
+      backdrop-filter: blur(16px) saturate(1.5);
+    }
+    .glass-dark {
+      background-color: rgba(13, 13, 13, 0.34);
+      -webkit-backdrop-filter: blur(18px) saturate(1.3);
+      backdrop-filter: blur(18px) saturate(1.3);
+    }
+    .glass-on-dark {
+      background-color: rgba(255, 255, 255, 0.04);
+      -webkit-backdrop-filter: blur(14px) saturate(1.2);
+      backdrop-filter: blur(14px) saturate(1.2);
+    }
+  }
+}
+
+/* Деградация прозрачности: пользователи, которым тяжело со стеклом,
+   получают плотную заливку (WCAG 2026, prefers-reduced-transparency). */
+@media (prefers-reduced-transparency: reduce) {
+  .glass {
+    background-color: rgba(246, 244, 239, 0.96);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .glass-dark {
+    background-color: rgba(13, 13, 13, 0.94);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .glass-on-dark {
+    background-color: rgba(255, 255, 255, 0.08);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .glass-sheen::before {
+    display: none;
   }
 }
 

@@ -178,10 +178,10 @@ export default function SectionRail() {
               exit={{ opacity: 0, scale: 0.8 }}
               transition={{ duration: 0.3, ease: EASE }}
               className={cn(
-                "fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full shadow-[0_12px_30px_-8px_rgba(13,13,13,0.45)] transition-colors duration-500",
-                // Тёмная заливка на светлом фоне; над тёмной секцией —
-                // светлая (как инверсия шкалы), чтобы линза не сливалась
-                invert ? "bg-paper text-ink" : "bg-ink text-paper"
+                "glass-sheen fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full transition-colors duration-500",
+                // Стеклянная линза: тёмное матовое стекло на светлом фоне;
+                // над тёмной секцией — светлое (как инверсия шкалы)
+                invert ? "glass text-ink" : "glass-dark text-paper"
               )}
             >
               {/* «Линза» — кольцо со зрачком (мотив оптики, не гамбургер) */}
@@ -204,7 +204,7 @@ export default function SectionRail() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.35, ease: EASE }}
-              className="fixed inset-0 z-[55] flex flex-col bg-offwhite/40 backdrop-blur-[6px] motion-reduce:bg-offwhite/95 motion-reduce:backdrop-blur-none"
+              className="fixed inset-0 z-[55] flex flex-col bg-offwhite/55 backdrop-blur-xl backdrop-saturate-150 motion-reduce:bg-offwhite/95 motion-reduce:backdrop-blur-none"
             >
               <div className="flex items-center justify-between px-8 pt-8">
                 <span className="text-xs uppercase tracking-eyebrow text-graphite">

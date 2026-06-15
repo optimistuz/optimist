@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Cormorant_Garamond, Jost, Literata, Manrope, Prata } from "next/font/google";
-import dynamic from "next/dynamic";
+import { Literata, Manrope } from "next/font/google";
 import "./globals.css";
 import SmoothScroll from "@/components/smooth-scroll";
 import { IntroProvider } from "@/components/ui/intro";
@@ -9,40 +8,8 @@ import SectionRail from "@/components/layout/section-rail";
 import Footer from "@/components/layout/footer";
 import { salons, site } from "@/content/home";
 
-// Dev-переключатель шрифтов: условный dynamic-импорт, чтобы код компонента
-// вообще не попадал в production-бандл (мёртвая ветка выбрасывается сборкой)
-const FontSwitcher =
-  process.env.NODE_ENV === "development"
-    ? dynamic(() => import("@/components/ui/font-switcher"))
-    : null;
-
-// Заголовки — элегантный серив (полная кириллица)
-const cormorant = Cormorant_Garamond({
-  subsets: ["latin", "cyrillic"],
-  display: "swap",
-  variable: "--font-cormorant",
-  weight: ["300", "400", "500", "600"],
-  style: ["normal", "italic"],
-});
-
-// Кандидаты на дисплейный шрифт — на время выбора владельцем.
-// После решения лишние шрифты и dev-переключатель удалить.
-const prata = Prata({
-  subsets: ["latin", "cyrillic"],
-  display: "swap",
-  variable: "--font-prata",
-  weight: "400",
-});
-
-const jost = Jost({
-  subsets: ["latin", "cyrillic"],
-  display: "swap",
-  variable: "--font-jost",
-  weight: ["300", "400", "500"],
-});
-
-// Вариативный editorial-серив с осью opsz и кириллицей — носитель эффекта
-// «наведения» заголовков (B1, оси opsz + wght). Кандидат в dev-переключателе.
+// Дисплейный шрифт заголовков — вариативный editorial-серив с осью opsz и
+// кириллицей: носитель эффекта «наведения» заголовков (B1, оси opsz + wght).
 const literata = Literata({
   subsets: ["latin", "cyrillic"],
   display: "swap",
@@ -150,7 +117,7 @@ export default function RootLayout({
   return (
     <html
       lang="ru"
-      className={`${cormorant.variable} ${prata.variable} ${jost.variable} ${literata.variable} ${manrope.variable}`}
+      className={`${literata.variable} ${manrope.variable}`}
     >
       <body className="font-sans antialiased">
         {/* Skip-link: первый фокусируемый элемент, проявляется плашкой */}
@@ -180,8 +147,6 @@ export default function RootLayout({
             </div>
           </SmoothScroll>
         </IntroProvider>
-        {/* Dev-инструмент выбора дисплейного шрифта; в prod-сборку не попадает */}
-        {FontSwitcher && <FontSwitcher />}
       </body>
     </html>
   );

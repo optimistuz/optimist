@@ -5,7 +5,13 @@ import { motion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { useReduceAfterMount } from "@/lib/use-reduce-after-mount";
 import { Magnetic } from "@/components/ui/magnetic";
-import { services, fitQuiz, salons, ctaBlock } from "@/content/home";
+import {
+  services,
+  fitQuiz,
+  salons,
+  ctaBlock,
+  faceShapeLabels,
+} from "@/content/home";
 import { EASE } from "@/lib/motion";
 import { cn } from "@/lib/cn";
 
@@ -40,8 +46,12 @@ const FIT_KEY = "optimist-fit";
 const FIT_SERVICE = "Подбор оправы";
 const FIT_MAX_AGE = 30 * 24 * 60 * 60 * 1000; // свежесть подбора ≤ 30 дней
 
+// Подбор из квиза знает 5 форм; подбор по лицу добавляет ромб — общий
+// словарь faceShapeLabels закрывает все 6 (квиз остаётся первым источником).
 const faceLabelOf = (v: string) =>
-  fitQuiz.steps[0].options.find((o) => o.value === v)?.label ?? v;
+  fitQuiz.steps[0].options.find((o) => o.value === v)?.label ??
+  faceShapeLabels[v] ??
+  v;
 
 /** Автоформат узбекского номера: +998 XX XXX-XX-XX, префикс закреплён. */
 function formatUzPhone(raw: string): string {

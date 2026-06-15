@@ -52,9 +52,8 @@ export const focusIn: Variants = {
 /**
  * Заголовки: строка выезжает из-под маски (родитель — overflow-hidden).
  * Доп. ось «наведения резкости» (B1): оптический размер доводится 20 → 72 —
- * при вариативном дисплейном шрифте с осью opsz (Literata) строка оптически
- * «резкостится» по мере оседания. Статичные шрифты (Cormorant/Prata) и Jost
- * (без opsz) игнорируют font-variation-settings — без вреда.
+ * вариативная Literata (ось opsz) оптически «резкостится» по мере оседания.
+ * Шрифты без оси opsz игнорируют font-variation-settings — без вреда.
  */
 export const maskLineChild: Variants = {
   // --opsz анимируем числом (motion интерполирует CSS-переменную надёжно;
