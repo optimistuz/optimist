@@ -10,14 +10,12 @@ import {
 import { MotionFocus } from "@/components/ui/motion-focus";
 import { OpenStatusBadge } from "@/components/ui/open-status";
 import { SalonActions } from "@/components/ui/salon-actions";
-import { Placeholder } from "@/components/ui/placeholder";
 import { FloatFrame } from "@/components/ui/float-frame";
 import { salons, salonsSection, site } from "@/content/home";
-import { imageReveal } from "@/lib/motion";
 
 /**
- * Секция «Салоны»: 4 филиала в стилистике списка услуг (волосяные
- * линии-разделители) + заглушка карты до решения владельца.
+ * Секция «Салоны»: 3 филиала в стилистике списка услуг (волосяные
+ * линии-разделители). Маршрут к каждому филиалу открывается кнопкой.
  */
 export default function Salons() {
   return (
@@ -71,7 +69,12 @@ export default function Salons() {
                     {salon.district}
                     {salon.note ? ` · ${salon.note}` : ""}
                   </p>
-                  <SalonActions address={salon.address} />
+                  <SalonActions
+                    address={salon.address}
+                    phone={salon.phone}
+                    lat={salon.lat}
+                    lng={salon.lng}
+                  />
                 </div>
                 <div className="shrink-0 text-sm leading-relaxed text-graphite sm:text-right">
                   <p>{site.hours.weekdays}</p>
@@ -80,15 +83,6 @@ export default function Salons() {
               </div>
             </RevealItem>
           ))}
-        </RevealGroup>
-
-        {/* Карта появится после выбора сервиса владельцем */}
-        <RevealGroup className="mt-12 sm:mt-16">
-          <RevealItem variants={imageReveal}>
-            <div className="aspect-[16/9] overflow-hidden rounded-2xl">
-              <Placeholder label="TODO: карта — Яндекс или Google, решение владельца" />
-            </div>
-          </RevealItem>
         </RevealGroup>
         </div>
       </Container>

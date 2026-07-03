@@ -26,10 +26,10 @@ const manrope = Manrope({
 });
 
 const description =
-  "Премиальная сеть салонов оптики «Оптимист» в Ташкенте. Диагностика зрения, авторский подбор оправ и линзы ведущих европейских производителей. С 2008 года.";
+  "Премиальная сеть салонов оптики «Оптимист» в Ташкенте. Диагностика зрения, авторский подбор оправ и линзы ведущих европейских производителей. С 2006 года.";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://optimist-optics.uz"),
+  metadataBase: new URL(site.url),
   title: {
     default: "Оптимист — Салоны оптики в Ташкенте",
     template: "%s · Оптимист",
@@ -73,40 +73,49 @@ const addressOf = (salon: (typeof salons)[number]) => ({
   addressCountry: "UZ",
 });
 
+// Часы единые во всех салонах: ежедневно 10:00–19:00.
+const openingHours = {
+  "@type": "OpeningHoursSpecification",
+  dayOfWeek: [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+  ],
+  opens: "10:00",
+  closes: "19:00",
+};
+// Каждый салон — со своим телефоном, координатами и часами.
+const branchOf = (salon: (typeof salons)[number]) => ({
+  "@type": "Optician",
+  name: `${site.name} — ${salon.district}`,
+  address: addressOf(salon),
+  telephone: salon.phone,
+  geo: {
+    "@type": "GeoCoordinates",
+    latitude: salon.lat,
+    longitude: salon.lng,
+  },
+  openingHoursSpecification: openingHours,
+});
 const jsonLd = {
   "@context": "https://schema.org",
   "@type": "Optician",
   name: site.name,
-  url: "https://optimist-optics.uz",
-  telephone: [site.phonePrimary, site.phoneSecondary],
+  url: site.url,
+  telephone: site.phonePrimary,
   email: site.email,
   address: addressOf(salons[0]),
-  department: salons.slice(1).map((salon) => ({
-    "@type": "Optician",
-    name: `${site.name} — ${salon.district}`,
-    address: addressOf(salon),
-  })),
-  openingHoursSpecification: [
-    {
-      "@type": "OpeningHoursSpecification",
-      dayOfWeek: [
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday",
-      ],
-      opens: "09:00",
-      closes: "20:00",
-    },
-    {
-      "@type": "OpeningHoursSpecification",
-      dayOfWeek: "Sunday",
-      opens: "10:00",
-      closes: "18:00",
-    },
-  ],
+  geo: {
+    "@type": "GeoCoordinates",
+    latitude: salons[0].lat,
+    longitude: salons[0].lng,
+  },
+  openingHoursSpecification: openingHours,
+  department: salons.slice(1).map(branchOf),
 };
 
 export default function RootLayout({

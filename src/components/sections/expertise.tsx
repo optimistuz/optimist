@@ -90,7 +90,7 @@ export default function Expertise() {
       />
       <Container className="relative z-10">
         <div className="grid grid-cols-1 gap-14 lg:grid-cols-2 lg:gap-20">
-          <div className="max-w-md">
+          <div className="max-w-xl">
             <Reveal>
               <Eyebrow>{expertise.eyebrow}</Eyebrow>
             </Reveal>

@@ -15,7 +15,9 @@ import {
 import { EASE } from "@/lib/motion";
 import { cn } from "@/lib/cn";
 
-type Status = "idle" | "submitting" | "success";
+type Status = "idle" | "submitting" | "success" | "error";
+
+type Mode = "appointment" | "callback";
 
 type FormValues = {
   name: string;
@@ -77,12 +79,30 @@ function validate(values: FormValues) {
   return errors;
 }
 
-// TODO: подключить реальную отправку (Telegram-бот / e-mail / CRM — решение владельца)
-// extras — дополнительные строки заявки (подбор из квиза, удобное время).
-async function sendBooking(values: FormValues, extras: string[]): Promise<void> {
-  void [values, extras]; // данные формы и доп. строки уйдут в реальный канал
-  // Имитация сетевого запроса
-  await new Promise((resolve) => setTimeout(resolve, 1200));
+type BookingPayload = {
+  type: "appointment" | "callback";
+  name: string;
+  phone: string;
+  service?: string;
+  date?: string;
+  extras?: string[];
+  company: string; // honeypot
+};
+
+// Реальная отправка: заявка уходит на серверный обработчик /api/booking,
+// который пересылает её в Telegram-группу. Токен — только в окружении Vercel.
+async function postBooking(payload: BookingPayload): Promise<boolean> {
+  try {
+    const res = await fetch("/api/booking", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = (await res.json().catch(() => null)) as { ok?: boolean } | null;
+    return res.ok && data?.ok === true;
+  } catch {
+    return false;
+  }
 }
 
 /** «2026-06-14» → «14 июня 2026 г.» (ru-RU). Парсим как локальную дату. */
@@ -255,6 +275,9 @@ export default function BookingForm() {
   // Поля, с которых ушёл фокус (для галочки валидности) + удобное время
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [timePref, setTimePref] = useState("");
+  // Тип заявки: запись на приём (по умолчанию) или обратный звонок (Шаг B).
+  const [mode, setMode] = useState<Mode>("appointment");
+  const isAppointment = mode === "appointment";
 
   useEffect(() => {
     const tomorrow = new Date();
@@ -327,19 +350,32 @@ export default function BookingForm() {
     setAttempted(true);
     if (Object.keys(validate(values)).length > 0) return;
 
-    // Доп. строки заявки: подбор из квиза (время добавит Блок 4)
+    // Доп. строки заявки — только для записи на приём: подбор из квиза, салон, время.
+    // Для обратного звонка нужны лишь имя и телефон.
     const extras: string[] = [];
-    if (fitApplied && fit) {
-      extras.push(
-        `Подбор из квиза: ${faceLabelOf(fit.face).toLowerCase()} · ${fit.recommendation}`
-      );
+    if (isAppointment) {
+      if (fitApplied && fit) {
+        extras.push(
+          `Подбор из квиза: ${faceLabelOf(fit.face).toLowerCase()} · ${fit.recommendation}`
+        );
+      }
+      if (values.salon) extras.push(`Салон: ${values.salon}`);
+      if (timePref) extras.push(`Удобное время: ${timePref}`);
     }
-    if (values.salon) extras.push(`Салон: ${values.salon}`);
-    if (timePref) extras.push(`Удобное время: ${timePref}`);
+
+    const payload: BookingPayload = {
+      type: mode,
+      name: values.name.trim(),
+      phone: values.phone,
+      service: isAppointment ? values.service || undefined : undefined,
+      date: isAppointment && values.date ? formatDateRu(values.date) : undefined,
+      extras: isAppointment ? extras : undefined,
+      company: honeypot,
+    };
 
     setStatus("submitting");
-    await sendBooking(values, extras);
-    setStatus("success");
+    const ok = await postBooking(payload);
+    setStatus(ok ? "success" : "error");
   };
 
   const resetForm = () => {
@@ -405,10 +441,10 @@ export default function BookingForm() {
           {firstName}.
         </motion.p>
         <p className="mt-3 max-w-sm text-sm leading-relaxed text-paper/60 sm:text-base">
-          {c.promise}
+          {isAppointment ? c.promise : c.promiseCallback}
         </p>
 
-        {summaryRows.length > 0 && (
+        {isAppointment && summaryRows.length > 0 && (
           <dl className="mt-8 w-full max-w-sm space-y-2.5 border-t border-paper/15 pt-6 text-sm">
             {summaryRows.map((row) => (
               <div key={row.label} className="flex justify-between gap-6">
@@ -419,6 +455,8 @@ export default function BookingForm() {
           </dl>
         )}
 
+        {isAppointment && (
+          <>
         <p className="mt-6 max-w-sm text-sm leading-relaxed text-paper/55">
           {c.bring}
         </p>
@@ -444,6 +482,8 @@ export default function BookingForm() {
             </a>
           )}
         </div>
+          </>
+        )}
 
         <button
           type="button"
@@ -473,8 +513,48 @@ export default function BookingForm() {
         </label>
       </div>
 
-      {/* Тихий чипс подбора из квиза — над полями; крестик отменяет предзаполнение */}
-      {fitApplied && fit && (
+      {/* Переключатель типа заявки: запись на приём ↔ обратный звонок (Шаг B).
+          Фокус-идиома: активный пункт резкий, неактивный приглушён; пилюля
+          подъезжает (layoutId) — отклик на действие, не вечная анимация. */}
+      <div
+        role="radiogroup"
+        aria-label="Тип заявки"
+        className="mb-8 inline-flex rounded-full border border-paper/15 p-1"
+      >
+        {(["appointment", "callback"] as const).map((m) => {
+          const active = mode === m;
+          return (
+            <button
+              key={m}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => setMode(m)}
+              className={cn(
+                "relative rounded-full px-4 py-2 text-sm transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand",
+                active ? "text-paper" : "text-paper/55 hover:text-paper"
+              )}
+            >
+              {active && (
+                <motion.span
+                  layoutId="booking-mode-pill"
+                  className="absolute inset-0 rounded-full bg-paper/[0.08]"
+                  transition={
+                    reduce
+                      ? { duration: 0 }
+                      : { type: "spring", stiffness: 400, damping: 34 }
+                  }
+                />
+              )}
+              <span className="relative z-10">{ctaBlock.modes[m]}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Тихий чипс подбора из квиза — над полями; крестик отменяет предзаполнение.
+          Только в режиме записи на приём (для обратного звонка подбор не нужен). */}
+      {isAppointment && fitApplied && fit && (
         <div className="mb-6 flex items-start justify-between gap-4 rounded-[4px] border border-paper/15 bg-paper/5 px-4 py-3">
           <p className="text-sm leading-relaxed text-paper/70">
             <span className="text-brand">✓</span> Учтём ваш подбор:{" "}
@@ -540,6 +620,9 @@ export default function BookingForm() {
           <FieldError id="booking-phone-error" message={errors.phone} />
         </div>
 
+        {/* Услуга · дата · салон — только для записи на приём (Шаг B) */}
+        {isAppointment && (
+          <>
         <div className="form-field">
           <label htmlFor="booking-service" className={labelClasses}>
             Услуга
@@ -653,10 +736,13 @@ export default function BookingForm() {
             </svg>
           </div>
         </div>
+          </>
+        )}
       </div>
 
       {/* Удобное время — необязательный одиночный выбор; уходит в текст заявки.
-          Чипсы в стиле «Мастерской» (тёмная тема CTA). */}
+          Чипсы в стиле «Мастерской» (тёмная тема CTA). Только при записи (Шаг B). */}
+      {isAppointment && (
       <div className="mt-6">
         <p className="text-xs font-medium uppercase tracking-[0.15em] text-paper/60">
           Удобнее
@@ -683,11 +769,23 @@ export default function BookingForm() {
           })}
         </div>
       </div>
+      )}
+
+      {status === "error" && (
+        <p role="alert" className="mt-6 text-sm text-brand">
+          Не удалось отправить заявку. Попробуйте ещё раз или позвоните нам:
+          +998&nbsp;99&nbsp;824&nbsp;00&nbsp;84.
+        </p>
+      )}
 
       <div className="mt-8">
         <Magnetic>
           <Button type="submit" disabled={status === "submitting"}>
-            {status === "submitting" ? "Отправляем…" : "Записаться на приём"}
+            {status === "submitting"
+              ? "Отправляем…"
+              : isAppointment
+                ? ctaBlock.button.label
+                : ctaBlock.callbackButton}
           </Button>
         </Magnetic>
       </div>

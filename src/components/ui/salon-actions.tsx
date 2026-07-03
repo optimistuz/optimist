@@ -14,13 +14,30 @@ import { EASE } from "@/lib/motion";
 const linkClass =
   "inline-flex items-center gap-1.5 rounded-sm text-sm text-graphite transition-colors duration-200 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand";
 
-export function SalonActions({ address }: { address: string }) {
+export function SalonActions({
+  address,
+  phone,
+  lat,
+  lng,
+}: {
+  address: string;
+  phone?: string;
+  lat?: number;
+  lng?: number;
+}) {
   const reduce = useReducedMotion();
   const [copied, setCopied] = useState(false);
   const timer = useRef<number | undefined>(undefined);
 
   const full = `${address}, Ташкент`;
-  const mapHref = "https://yandex.uz/maps/?text=" + encodeURIComponent(full);
+  // Маршрут: если есть координаты — строим путь «от меня» до точки (точнее
+  // текстового поиска); иначе фолбэк на текстовый адрес.
+  const mapHref =
+    lat != null && lng != null
+      ? `https://yandex.uz/maps/?rtext=~${lat},${lng}&rtt=auto`
+      : "https://yandex.uz/maps/?text=" + encodeURIComponent(full);
+  // Телефон для ссылки tel: только цифры и плюс.
+  const telHref = phone ? "tel:" + phone.replace(/[^\d+]/g, "") : null;
 
   const copy = async () => {
     try {
@@ -48,6 +65,11 @@ export function SalonActions({ address }: { address: string }) {
 
   return (
     <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2">
+      {telHref && (
+        <a href={telHref} className={linkClass}>
+          {phone}
+        </a>
+      )}
       <a href={mapHref} target="_blank" rel="noopener noreferrer" className={linkClass}>
         Маршрут
         <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">

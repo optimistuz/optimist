@@ -35,3 +35,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .backup-night/
+
+# local backup archives (МОГУТ содержать .env.local внутри — не коммитить)
+*.zip
+
+# приёмочные скриншоты (выхлоп scripts/shot-site.mjs)
+/tmp-frames/

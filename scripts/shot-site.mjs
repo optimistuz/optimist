@@ -110,7 +110,22 @@ async function main() {
         await sleep(s.navWait || 3200); // загрузка + прелоадер (+ холодная компиляция)
         lastPath = s.path;
       }
-      if (s.anchor) {
+      // Синтетический клик (приёмка состояний за переключателем: режимы формы,
+      // открытие аккордеона и т. п.). Выполняется ДО скролла — лейаут успевает
+      // перестроиться, и anchor считает корректные позиции.
+      if (s.clickOn) {
+        await evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(s.clickOn)}); if(el) el.click(); return 0;})()`);
+        await sleep(s.clickWait || 500);
+      }
+      if (s.bottom) {
+        // Надёжный доезд до подвала: страница длинная, нижние секции
+        // догружают высоту по мере появления — прыгаем к растущему низу
+        // несколько раз, пока он не стабилизируется (и Lenis успевает встать).
+        for (let k = 0; k < 8; k++) {
+          await evaluate(`window.scrollTo(0, document.body.scrollHeight); 0`);
+          await sleep(400);
+        }
+      } else if (s.anchor) {
         await evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(s.anchor)}); if(el){const r=el.getBoundingClientRect(); window.scrollTo(0, window.scrollY + r.top - ${s.anchorOffset ?? 260});} return 0;})()`);
       } else {
         await evaluate(`window.scrollTo(0, ${s.y || 0}); 0`);

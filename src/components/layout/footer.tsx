@@ -59,14 +59,6 @@ export default function Footer() {
               </li>
               <li>
                 <a
-                  href={telHref(site.phoneSecondary)}
-                  className="text-ink transition-colors hover:text-brand-deep"
-                >
-                  {site.phoneSecondary}
-                </a>
-              </li>
-              <li>
-                <a
                   href={`mailto:${site.email}`}
                   className="text-ink transition-colors hover:text-brand-deep"
                 >
