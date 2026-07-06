@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Оптимист — план v2.0: иммерсивный максимум и витрина</title>
+<style>
+  :root{
+    --paper:#F7F5F0; --paper2:#EFECE4; --ink:#141414; --muted:#6B675E;
+    --hair:#DBD7CC; --brand:#FD0000; --brand-deep:#D40000;
+    --serif:'Literata',Georgia,'Times New Roman',serif;
+    --sans:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+    --mono:'Cascadia Code',Consolas,'SF Mono',monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+  body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 28px}
+
+  /* ---------- типографика ---------- */
+  h1,h2,h3{font-family:var(--serif);font-weight:500;text-wrap:balance}
+  .eyebrow{font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--brand-deep);display:flex;align-items:center;gap:12px}
+  .eyebrow::before{content:"";display:block;width:34px;height:1px;background:var(--brand)}
+  .muted{color:var(--muted)}
+  .mono{font-family:var(--mono);font-size:.85em}
+
+  /* один оркестрованный момент: шапка наводится на резкость при загрузке (только CSS) */
+  @media (prefers-reduced-motion:no-preference){
+    .f1,.f2,.f3{animation:focusIn .9s ease both}
+    .f2{animation-delay:.14s}
+    .f3{animation-delay:.28s}
+  }
+  @keyframes focusIn{from{opacity:0;filter:blur(8px);transform:translateY(12px)}}
+
+  /* ---------- шапка ---------- */
+  header.hero{padding:84px 0 56px;border-bottom:1px solid var(--hair)}
+  header.hero h1{font-size:clamp(38px,6vw,64px);line-height:1.08;margin:20px 0 18px}
+  header.hero h1 em{font-style:italic;color:var(--brand-deep)}
+  header.hero p.lead{max-width:62ch;font-size:18px;color:var(--muted)}
+  .meta-chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:28px}
+  .chip{font-size:12.5px;letter-spacing:.04em;border:1px solid var(--hair);border-radius:999px;padding:5px 14px;background:#fff;color:var(--muted)}
+  .chip b{color:var(--ink);font-weight:600}
+  .chip.red{border-color:var(--brand);color:var(--brand-deep)}
+
+  /* ---------- секции ---------- */
+  section{padding:64px 0;border-bottom:1px solid var(--hair)}
+  section h2{font-size:clamp(26px,3.6vw,36px);margin:14px 0 10px}
+  section > .wrap > p.intro{max-width:66ch;color:var(--muted);margin-bottom:34px}
+
+  /* ---------- конвейер происхождения ---------- */
+  .pipeline{display:flex;flex-wrap:wrap;gap:0;margin-top:30px;counter-reset:st}
+  .pipe{flex:1 1 150px;min-width:150px;padding:18px 20px 16px;border:1px solid var(--hair);border-left:none;background:#fff;position:relative}
+  .pipe:first-child{border-left:1px solid var(--hair)}
+  .pipe .n{font-family:var(--serif);font-size:26px;color:var(--brand);line-height:1}
+  .pipe .t{font-weight:600;font-size:14px;margin-top:6px}
+  .pipe .d{font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.45}
+  .pipe::after{content:"→";position:absolute;right:-9px;top:50%;transform:translateY(-50%);color:var(--brand);background:var(--paper);z-index:2;font-size:14px}
+  .pipe:last-child::after{content:""}
+
+  /* ---------- драматургия: путь пациента ---------- */
+  .drama{display:grid;grid-template-columns:repeat(6,1fr);gap:0;border:1px solid var(--hair);background:#fff;margin-top:34px}
+  .scene{padding:22px 16px 18px;border-right:1px solid var(--hair);position:relative}
+  .scene:last-child{border-right:none}
+  .scene .no{font-family:var(--serif);font-size:13px;color:var(--brand-deep);letter-spacing:.12em}
+  .scene .word{font-family:var(--serif);font-size:clamp(15px,1.8vw,21px);margin:8px 0 6px;line-height:1.2}
+  .scene .sub{font-size:12px;color:var(--muted);line-height:1.45}
+  /* живая метафора: сцены наводятся на резкость слева направо */
+  .scene:nth-child(1) .word{filter:blur(3.2px);opacity:.75}
+  .scene:nth-child(2) .word{filter:blur(2.2px);opacity:.82}
+  .scene:nth-child(3) .word{filter:blur(1.4px);opacity:.88}
+  .scene:nth-child(4) .word{filter:blur(.8px);opacity:.94}
+  .scene:nth-child(5) .word{filter:blur(.3px)}
+  .scene:nth-child(6) .word{filter:none;color:var(--brand-deep)}
+  .drama-caption{font-size:12.5px;color:var(--muted);margin-top:10px;text-align:right}
+  @media(max-width:860px){.drama{grid-template-columns:repeat(2,1fr)}.scene{border-bottom:1px solid var(--hair)}}
+
+  /* ---------- подписные моменты ---------- */
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px;margin-top:34px}
+  .card{background:#fff;border:1px solid var(--hair);padding:26px 24px 22px;position:relative}
+  .card::before{content:"";position:absolute;inset:0 auto 0 0;width:2px;background:var(--brand)}
+  .card .big{font-family:var(--serif);font-size:44px;line-height:1;color:var(--brand);opacity:.9}
+  .card h3{font-size:20px;margin:12px 0 8px}
+  .card p{font-size:14px;color:var(--muted);line-height:1.55}
+  .card .where{font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--brand-deep);margin-top:14px}
+
+  /* ---------- правила: два столбца ---------- */
+  .rules{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:34px}
+  @media(max-width:760px){.rules{grid-template-columns:1fr}}
+  .rule-col{background:#fff;border:1px solid var(--hair);padding:26px 26px 20px}
+  .rule-col.keep{border-top:3px solid var(--ink)}
+  .rule-col.lift{border-top:3px solid var(--brand)}
+  .rule-col h3{font-size:19px;margin-bottom:4px}
+  .rule-col .sub{font-size:13px;color:var(--muted);margin-bottom:16px}
+  .rule-col ul{list-style:none}
+  .rule-col li{font-size:14px;padding:9px 0 9px 26px;border-top:1px solid var(--paper2);position:relative;line-height:1.5}
+  .rule-col li::before{position:absolute;left:2px;top:9px;font-size:13px}
+  .lift li::before{content:"●";color:var(--brand)}
+  .keep li::before{content:"—";color:var(--muted)}
+  .rule-col li b{font-weight:600}
+
+  /* ---------- таймлайн этапов ---------- */
+  .timeline{margin-top:40px;position:relative}
+  .timeline::before{content:"";position:absolute;left:31px;top:0;bottom:0;width:1px;background:var(--hair)}
+  .stage{display:grid;grid-template-columns:64px 1fr;gap:26px;margin-bottom:30px;position:relative}
+  .stage .dot{width:64px;height:64px;border-radius:50%;background:#fff;border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-size:24px;position:relative;z-index:1}
+  .stage.signature .dot{border-color:var(--brand);color:var(--brand-deep)}
+  .stage-card{background:#fff;border:1px solid var(--hair);padding:24px 26px 20px}
+  .stage.signature .stage-card{border-left:2px solid var(--brand)}
+  .stage-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:12px}
+  .stage-head h3{font-size:22px}
+  .badge{font-size:11px;letter-spacing:.1em;padding:3px 10px;border-radius:999px;border:1px solid var(--hair);color:var(--muted);text-transform:uppercase;white-space:nowrap}
+  .badge.S{background:var(--paper)}
+  .badge.M{background:#EDEAE0}
+  .badge.L{background:#E2DECF}
+  .badge.XL{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+  .badge.sig{border-color:var(--brand);color:var(--brand-deep);background:#fff}
+  .stage-card .owner{font-size:15px;margin:10px 0 12px;max-width:70ch}
+  .stage-card ul{list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:4px 26px}
+  .stage-card li{font-size:13.5px;color:var(--muted);padding:5px 0 5px 18px;position:relative;line-height:1.5}
+  .stage-card li::before{content:"";position:absolute;left:0;top:13px;width:9px;height:1px;background:var(--brand)}
+  .stage-card .accept{margin-top:14px;padding-top:12px;border-top:1px dashed var(--hair);font-size:12.5px;color:var(--muted)}
+  .stage-card .accept b{color:var(--ink);font-weight:600;letter-spacing:.06em;font-size:11.5px;text-transform:uppercase}
+
+  /* ---------- карта секций ---------- */
+  .table-scroll{overflow-x:auto;margin-top:30px;border:1px solid var(--hair);background:#fff}
+  table{width:100%;border-collapse:collapse;font-size:14px;min-width:660px}
+  th{font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600;text-align:left;padding:14px 18px;border-bottom:1px solid var(--ink)}
+  td{padding:12px 18px;border-bottom:1px solid var(--paper2);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.sec{font-family:var(--serif);font-size:15px;white-space:nowrap}
+  td.stg{white-space:nowrap;font-family:var(--mono);font-size:12.5px;color:var(--brand-deep)}
+  tr.hot td.sec::after{content:"★";color:var(--brand);margin-left:7px;font-size:12px}
+
+  /* ---------- технологии ---------- */
+  .tech{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:30px}
+  @media(max-width:760px){.tech{grid-template-columns:1fr}}
+  .tech-col{background:#fff;border:1px solid var(--hair);padding:24px 26px}
+  .tech-col h3{font-size:17px;margin-bottom:14px}
+  .tags{display:flex;flex-wrap:wrap;gap:9px}
+  .tag{font-family:var(--mono);font-size:12.5px;padding:5px 12px;border:1px solid var(--hair);border-radius:4px;background:var(--paper)}
+  .tag small{color:var(--muted)}
+  .tag.no{text-decoration:line-through;color:var(--muted);background:transparent}
+  .tech-col p{font-size:12.5px;color:var(--muted);margin-top:14px}
+
+  /* ---------- приёмка ---------- */
+  .checks{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-top:30px}
+  .check{background:#fff;border:1px solid var(--hair);padding:16px 18px;font-size:13px;color:var(--muted);line-height:1.5}
+  .check b{display:block;color:var(--ink);font-size:13.5px;margin-bottom:4px;font-weight:600}
+  .check::before{content:"✓";color:var(--brand);font-weight:700;float:right;margin-left:8px}
+
+  footer{padding:44px 0 64px;font-size:13px;color:var(--muted)}
+  footer .mono{font-size:12px}
+  a{color:var(--brand-deep)}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow">Оптимист · план апгрейда · версия 2.0 · июль 2026</div>
+    <h1 class="f1">Оптический прибор в руках —<br>и витрина, которая <em>продаёт визит</em></h1>
+    <p class="lead f2">Акт первый: каждое движение посетителя вращает «кольцо наводки» — язык резкости доведён до физической честности, телефон получает полный опыт. Акт второй (v2.0): собственные коллекции с кино-страницами оправ, примерка к уровню Ray-Ban, полка-поднос и бронь в салоне через Telegram. Онлайн — лишь ~8% продаж оптики, но 80% клиентов выбирают оправу онлайн до визита — сайт готовит визит, салон закрывает продажу.</p>
+    <div class="meta-chips f3">
+      <span class="chip"><b>18 этапов</b> + хотфикс · три трека</span>
+      <span class="chip"><b>10</b> вау-моментов, которыми делятся</span>
+      <span class="chip"><b>≈25</b> рабочих сессий</span>
+      <span class="chip"><b>0 КБ</b> новых в критическом пути главной</span>
+      <span class="chip red">две волны верификации против кода</span>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">Как появился план</div>
+    <h2 class="">Две волны: сорок агентов, шесть концептов, два жюри, восемь скептиков</h2>
+    <p class="intro">План — не мнение, а результат конвейера: каждый шаг проверял предыдущий, финальный текст сверен с реальным кодом построчно. Волна 1 (v1.1) построила иммерсивный максимум; волна 2 (v2.0) — витрину, продажи и дорогу к 3D-примерке.</p>
+    <div class="pipeline">
+      <div class="pipe"><div class="n">5</div><div class="t">Аудиторов кода</div><div class="d">каждая секция, каждый эффект, все записи об ограничениях</div></div>
+      <div class="pipe"><div class="n">5</div><div class="t">Исследователей</div><div class="d">Awwwards, FWA, Gentle Monster, Cubitts, техники 2024–2026</div></div>
+      <div class="pipe"><div class="n">3</div><div class="t">Концепта</div><div class="d">«Оптическая вселенная», «Длинный план», «Живая материя»</div></div>
+      <div class="pipe"><div class="n">3</div><div class="t">Судьи</div><div class="d">вкус · инженерия · конверсия. Победила «Живая материя»</div></div>
+      <div class="pipe"><div class="n">4</div><div class="t">Скептика</div><div class="d">факт-чек кода, канон, однозначность, инженерная реальность</div></div>
+    </div>
+    <div class="pipeline" style="margin-top:14px">
+      <div class="pipe"><div class="n">5</div><div class="t">Читателей кода</div><div class="d">структура, оправы, примерка, коммерция, полный реестр канона</div></div>
+      <div class="pipe"><div class="n">6</div><div class="t">Мировых исследователей</div><div class="d">примерки Ray-Ban/Fittingbox, e-commerce оптики, психология награды, стандарты съёмки, веб-2026</div></div>
+      <div class="pipe"><div class="n">3</div><div class="t">Концепта</div><div class="d">«Режиссёр» 254 · «Инженер» 252 · «Продавец» 255 — фактически ничья</div></div>
+      <div class="pipe"><div class="n">3</div><div class="t">Судьи</div><div class="d">владелец · техдир · клиент с Galaxy A54. Скелет — «Продавец», кино — от «Режиссёра», каркас — от «Инженера»</div></div>
+      <div class="pipe"><div class="n">4</div><div class="t">Скептика</div><div class="d">физика, производительность, операционка салонов, бренд и право — 27 находок вшиты</div></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">Драматургия</div>
+    <h2 class="">«Путь пациента» — главная страница как один кадр</h2>
+    <p class="intro">Акт первый не меняется: главная читается как непрерывный съёмочный дубль — от близорукого утра к резкому кадру записи. Коммерция в неё НЕ вливается: желание продаёт главная, оправу продаёт витрина — отдельные страницы коллекций и моделей, склеенные с главной рэк-фокусом переходов.</p>
+    <div class="drama">
+      <div class="scene"><div class="no">01</div><div class="word">Близорукое утро</div><div class="sub">Hero: мир проявляется из расфокуса — теперь на всех устройствах</div></div>
+      <div class="scene"><div class="no">02</div><div class="word">Зона ясного зрения</div><div class="sub">Манифест: «до/после очков» без единого слова</div></div>
+      <div class="scene"><div class="no">03</div><div class="word">Субъективная камера</div><div class="sub">Симулятор: честные −6 дптр под пальцем</div></div>
+      <div class="scene"><div class="no">04</div><div class="word">Макро ремесла</div><div class="sub">Мастерская: деталь можно вынуть, лупа ходит по чертежу</div></div>
+      <div class="scene"><div class="no">05</div><div class="word">Паспорт посадки</div><div class="sub">Примерка становится оптометрическим сервисом</div></div>
+      <div class="scene"><div class="no">06</div><div class="word">Резкий кадр записи</div><div class="sub">CTA: волна резкости — «всё сошлось»</div></div>
+    </div>
+    <div class="drama-caption">← расфокус · резкость →</div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">Ради чего всё</div>
+    <h2 class="">Десять моментов, которыми делятся</h2>
+    <p class="intro">Четыре подписных момента главной (волна 1) + пять коммерческих моментов витрины (волна 2) + сквозной «один дубль». Дофамин живёт в серотониновой раме: пики редки, вокруг — тишина и воздух; награда — момент или материальная память, никогда не цифра.</p>
+    <div class="cards">
+      <div class="card"><div class="big">1</div><h3>Честная линза</h3><p>WebGL-лупа с настоящим преломлением: центр увеличивает, кромка даёт лёгкую радужную дисперсию, по ободку — гравировка диоптрий. На телефоне — долгое нажатие, линза идёт за пальцем.</p><div class="where">Коллекции · чертёж Мастерской</div></div>
+      <div class="card"><div class="big">2</div><h3>Зона ясного зрения</h3><p>Манифест лежит в расфокусе, и только пятно вокруг курсора, пальца или наклона телефона — резкое. Прочитанные строки остаются резкими навсегда. Опыт «до/после очков» без слов.</p><div class="where">Манифест «О нас»</div></div>
+      <div class="card"><div class="big">3</div><h3>Субъективная камера</h3><p>Шторка симулятора размывает непрерывно, до честных −6 дптр — по-настоящему страшно. Крупный счётчик диоптрий, инерция шторки, халяция светов как в реальной миопии.</p><div class="where">Секция «Зрение»</div></div>
+      <div class="card"><div class="big">4</div><h3>Паспорт посадки</h3><p>Примерка без дрожи (60 кадров/с) плюс измерения по 478 точкам лица: межзрачковое расстояние, ширина лица, скор посадки — и карточка, которой делятся. Честная оговорка: ориентир, не рецепт.</p><div class="where">Подбор по лицу</div></div>
+    </div>
+    <div class="cards" style="margin-top:18px">
+      <div class="card"><div class="big">6</div><h3>«Ваша ширина»</h3><p>Миллиметры лица из камеры встречаются с миллиметровым паспортом каждой оправы — на подходящих карточках каталога появляется тихий размерный бейдж. «Сайт знает мой размер очков, как размер обуви» — этого нет ни у Ray-Ban, ни у Warby. Скриншотится в чаты.</p><div class="where">Каталог коллекций</div></div>
+      <div class="card"><div class="big">7</div><h3>Кадр примерки</h3><p>Селфи в выбранной оправе с каталожным номером уходит жене или другу нативным «поделиться» — файл собирается на устройстве, на сервер не отправляется ничего. Естественный жест «как тебе?» оцифрован; каждый кадр — реклама с номером модели.</p><div class="where">Камера-примерка</div></div>
+      <div class="card"><div class="big">8</div><h3>Кино-страница оправы</h3><p>Фото перелетает из сетки каталога в заглавный кадр страницы модели, дальше скролл ведёт наведение резкости, снятое НАСТОЯЩЕЙ камерой на фотосессии — размытие бесплатно для телефона, оно в самой фотографии. Плюс вращение оправы под пальцем.</p><div class="where">Каталог → страница модели</div></div>
+      <div class="card"><div class="big">9</div><h3>«Тихий дроп»</h3><p>Тизер капсулы стоит в расфокусе и наводится на резкость ступенями диоптрий по мере готовности: −6 → −3 → 0. «Сообщить, когда наведётся» — в Telegram-канале. Дефицит только честный: никаких таймеров, никаких «осталось 2 часа».</p><div class="where">Капсульные коллекции</div></div>
+      <div class="card"><div class="big">10</div><h3>Полка «вас ждут»</h3><p>Отложенные оправы (без регистрации) при возврате на сайт первыми проявляются из расфокуса. Бронь одним тапом — менеджер салона получает список в Telegram, клиента встречает готовый поднос примерки. «Пришёл — а мне уже всё отложили».</p><div class="where">Витрина → салон</div></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">Правила игры</div>
+    <h2 class="">Что снимаем — и что не трогаем никогда</h2>
+    <p class="intro">Решение владельца: ограничения ради «слабых устройств» снимаются. Но четыре категории — не про слабость устройств, они остаются законом.</p>
+    <div class="rules">
+      <div class="rule-col lift">
+        <h3>Снимаем (мобила получает всё)</h3>
+        <div class="sub">~30 ограничений · этапы 2–8</div>
+        <ul>
+          <li>Полная <b>hero-раскадровка</b> на телефоне: расфокус сцены, фокус-окна, блик, рэк-фокус на выходе</li>
+          <li><b>Парящие оправы</b> возвращаются на мобилу: полные фильтры, полный параллакс, все 5 деко-оправ</li>
+          <li><b>Фокальная плоскость</b> и velocity-резкость заголовков — на всех устройствах, потолки глубже (3→5px, 2→3px)</li>
+          <li><b>Лупа</b> на таче (долгое нажатие), зрачки 404 за тапом и наклоном</li>
+          <li><b>Шторка</b>: ступени размытия → непрерывность без потолка (шейдер)</li>
+          <li><b>Камера</b>: 30 → 60 кадров/с, выше разрешение, без дрожи</li>
+          <li><b>Стекло</b> глубже (16–24px) + progressive blur шапки</li>
+          <li><b>(v2.0) Одностраничность</b>: появляются страницы коллекций и моделей — витрина</li>
+          <li><b>(v2.0) «≤5 оправ на сайт»</b> → «не более одной в кадре»; парящие оправы становятся кликабельными товарами</li>
+          <li><b>(v2.0) «Эффекты ждут фотографий»</b> → контракт кадра: техбриф фотографу — часть канона</li>
+          <li><b>(v2.0) Спящий код просыпается</b>: перетаскивание, гироскоп, наклон за курсором у hero-оправы — уже написаны</li>
+        </ul>
+      </div>
+      <div class="rule-col keep">
+        <h3>Не трогаем никогда</h3>
+        <div class="sub">нарушение = провал этапа</div>
+        <ul>
+          <li><b>Доступность</b>: prefers-reduced-motion / reduced-transparency — выбор пользователя, не слабость устройства</li>
+          <li><b>Физика multiply</b> парящих оправ: никаких обёрток с фильтрами/трансформами, пиксельная приёмка ±1</li>
+          <li><b>Приватность камеры</b>: всё в памяти вкладки, авто-выключение через 8 с, ноль сетевых отправок</li>
+          <li><b>Правило вечного движения</b>: бесконечных анимаций ровно две, всё новое — от руки посетителя</li>
+          <li><b>Эстетика</b>: без неона, частиц, 3D-сцен и свечений; красный — только графика</li>
+          <li><b>Прелоадер</b>: знак и глаза — авторские; трогается только хвост растворения</li>
+          <li><b>(v2.0) Честность коммерции</b>: сайт продаёт визит, не корзину; дефицит только честный; обещание сайта («держим 3 дня») публикуется только после подтверждения салонами</li>
+          <li><b>(v2.0) Граница данных</b>: всё, что камера узнала о лице, умирает с вкладкой; наружу уходит только явный выбор клиента; никаких аккаунтов, баз и e-mail</li>
+          <li><b>(v2.0) Без геймификации-цифр</b>: полка и паспорт — документ и утилита, не ачивка; очки/бейджи/таймеры — запрещены навсегда</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">Дорожная карта</div>
+    <h2 class="">Восемнадцать этапов: фундамент, потом три трека</h2>
+    <p class="intro">Этапы 0–4 — строго по порядку (фундамент), сразу после — хотфикс «Ф» (один вечер, чинит живую воронку записи). Дальше три параллельных трека: <b>«Витрина»</b> (10 → 11 → 12 → 13 → 16, бизнес-приоритет), <b>«Опыт»</b> (5 → 6 → 8 → 9 → 17) и <b>«Точность»</b> (7 → 14 → 15). Единственный жёсткий дедлайн всего плана — техбриф фотографу (этап 10): его нужно вручить до следующего съёмочного дня, пересъёмку не купить. Смета — около 25 рабочих сессий. Звёздочка — этапы, рождающие моменты «которыми делятся».</p>
+    <div class="timeline">
+
+      <div class="stage"><div class="dot">0</div>
+        <div class="stage-card">
+          <div class="stage-head"><h3>Фундамент</h3><span class="badge S">S · часы</span></div>
+          <p class="owner">Починка тихих мин и новая редакция правил — до любых визуальных правок. Сайт не меняется.</p>
+          <ul>
+            <li>autoprefixer в сборку (страховка Safari для будущего стекла)</li>
+            <li>Скрипт запекания размытий (sharp): тяжёлый расфокус — в готовые картинки</li>
+            <li>Правки канона: perf-обоснования → эстетические потолки + 7 новых законов</li>
+            <li>Исправление ошибки канона про threaded-WASM</li>
+            <li>Фиксация базовых метрик скорости (LCP) — точка сравнения для финала</li>
+          </ul>
+          <div class="accept"><b>Приёмка:</b> сборка чиста, скрипт выпускает interior-blur.jpg, канон соответствует §3 плана, метрики записаны.</div>
+        </div>
+      </div>
+
+      <div class="stage"><div class="dot">1</div>
+        <div class="stage-card">
+          <div class="stage-head"><h3>Кольцо наводки</h3><span class="badge M">M · день</span></div>
+          <p class="owner">Невидимый фундамент: единый «датчик взгляда» (курсор / палец / наклон / скорость скролла), единый выключатель ограничений и один общий такт всех анимаций. Внешне сайт идентичен.</p>
+          <ul>
+            <li>useOpticalCapability — семь разбросанных проверок устройства → одна точка (и одна точка отката)</li>
+            <li>useGaze — единый шлюз ввода для всех следящих эффектов</li>
+            <li>Единый rAF-тикер (Lenis autoRaf:false) — против «желе» будущих канвасов</li>
+            <li>Модуль renderScale — невидимая страховка вместо урезания эффектов</li>
+          </ul>
+          <div class="accept"><b>Приёмка:</b> скриншоты до/после совпадают, гидрация чиста, grep находит matchMedia только в разрешённых местах.</div>
+        </div>
+      </div>
+
+      <div class="stage"><div class="dot">2</div>
+        <div class="stage-card">
+          <div class="stage-head"><h3>Мобила получает всё</h3><span class="badge L">L · 1–2 дня</span></div>
+          <p class="owner">Телефон впервые видит вторую половину сайта: полную сцену hero, парящие оправы, глубину, велосити-резкость. Самый большой по площади этап.</p>
+          <ul>
+            <li>Один флаг в хуке — и полная hero-раскадровка, фокальная плоскость, фильтры оправ живут везде</li>
+            <li>5 деко-оправ возвращаются на мобилу уменьшенными (только размером контейнера — не transform!)</li>
+            <li>Фокус-идиома глубже (1→2px) + тач-эквивалент: строка у центра экрана — резкая</li>
+            <li>Каскад Сивцева на 404 по тапу, зрачки за пальцем и наклоном</li>
+            <li>Обновление пиксельного аудита под видимые на мобиле оправы</li>
+          </ul>
+          <div class="accept"><b>Приёмка:</b> 390×844 при CPU×4 — 60 fps, оправы не пересекают текст на 360/390/430, аудит белой точки чист.</div>
+        </div>
+      </div>
+
+      <div class="stage"><div class="dot">3</div>
+        <div class="stage-card">
+          <div class="stage-head"><h3>Один дубль</h3><span class="badge M">M · день</span></div>
+          <p class="owner">Сайт начинает ощущаться одним непрерывным кадром: прелоадер перетекает в hero без паузы, швы глав ведутся рукой скроллящего, провисающие секции получают рэк-фокусы.</p>
+          <ul>
+            <li>Эстафета фокуса: знак «op» уходит в расфокус синхронно с наводкой hero</li>
+            <li>Швы глав — на scroll-scrub, зрачок метки провожает взгляд</li>
+            <li>Манифест: строки-титры наводятся по одной; прочитанное — резкое навсегда</li>
+            <li>«Атмосфера»: настоящая глубина резкости двумя слоями (запечённый двойник)</li>
+            <li>Отзывы — рэк-фокус между людьми; лента брендов смазывается на разгоне; цифры «Экспертизы» наводятся с пробегом</li>
+          </ul>
+          <div class="accept"><b>Приёмка:</b> покадровые скрины эстафеты без пустого кадра, все наводки обратимы, петля маркизы — в едином тикере.</div>
+        </div>
+      </div>
+
+      <div class="stage signature"><div class="dot">4</div>
+        <div class="stage-card">
+          <div class="stage-head"><h3>Зона ясного зрения</h3><span class="badge M">M · день</span><span class="badge sig">★ подписной №2</span></div>
+          <p class="owner">Манифест читается сквозь пятно резкости под курсором, пальцем или наклоном телефона. Лучший shareable-кадр по вердикту жюри — «до/после очков» без единого слова.</p>
+          <ul>
+            <li>Два слоя текста: резкий + запечённый расфокус; пятно — clip-path: circle() (ноль живых фильтров)</li>
+            <li>На таче пятно шире и само дрейфует к непрочитанной строке</li>
+            <li>Прочитанные строки исключаются из расфокуса навсегда — текст не заложник жеста</li>
+            <li>PulseWord уступает место «Зоне» — один подписной на блок</li>
+          </ul>
+          <div class="accept"><b>Приёмка:</b> серия скринов пятна, дрейф на таче, проверка Safari, пиксельный аудит соседней оправы.</div>
+        </div>
+      </div>
+
+      <div class="stage signature"><div class="dot">5</div>
+        <div class="stage-card">
+          <div class="stage-head"><h3>Честная линза</h3><span class="badge L">L · 1–2 дня</span><span class="badge sig">★ подписной №1</span></div>
+          <p class="owner">Лупа перерождается в физическую линзу (WebGL на лёгкой библиотеке ogl). Здесь строится вся шейдерная инфраструктура — следующий этап её переиспользует.</p>
+          <ul>
+            <li>Преломление с усилением к центру + едва заметная дисперсия по кромке</li>
+            <li>Зум колесом 1.85→2.6; на таче — long-press, линза со смещением от пальца</li>
+            <li>Та же линза ходит по чертежу «Мастерской»</li>
+            <li>Фолбэк: прежняя CSS-лупа при отсутствии WebGL; канвасы спят вне экрана</li>
+          </ul>
+          <div class="accept"><b>Приёмка:</b> 60 fps на мобильной эмуляции 5 минут, скролл цел при long-press, первый экран не потяжелел.</div>
+        </div>
+      </div>
+
+      <div class="stage signature"><div class="dot">6</div>
+        <div class="stage-card">
+          <div class="stage-head"><h3>Субъективная камера</h3><span class="badge L">L · 1–2 дня</span><span class="badge sig">★ подписной №3</span></div>
+          <p class="owner">Шторка симулятора пугает честными −6 диоптриями: непрерывное размытие без потолка на шейдере dual-Kawase (цена почти не зависит от радиуса). Идёт после обкатки шейдеров на линзе.</p>
+          <ul>
+            <li>Канвас внутри контейнера симулятора — скругления и маска глубины работают сами</li>
+            <li>Снап и вибрация остаются на ступенях; визуальный расфокус — непрерывный</li>
+            <li>Инерция шторки с пружинным доснапом; колесо и стрелки на десктопе</li>
+            <li>Крупный счётчик диоптрий, «дорезающийся» шрифтовой осью; халяция светов из запечённого слоя</li>
+          </ul>
+          <div class="accept"><b>Приёмка:</b> drag 5+ минут при CPU×4 — 60 fps, стык шторки пиксельно чист, оба симулятора живы.</div>
+        </div>
+      </div>
+
+      <div class="stage signature"><div class="dot">7</div>
+        <div class="stage-card">
+          <div class="stage-head"><h3>Паспорт посадки</h3><span class="badge XL">XL · несколько дней</span><span class="badge sig">★ подписной №4</span></div>
+          <p class="owner">Примерка из игрушки — в сервис: измерения лица в миллиметрах, скор посадки для каждого силуэта и карточка, которой делятся. Всё считается локально, приватность — закон.</p>
+          <ul>
+            <li>Детекция по кадрам камеры (rvfc) + интерполяция — оверлей 60 fps без дрожи</li>
+            <li>PD, ширина лица, переносица из 478 точек; подача «ориентир, не рецепт» с CTA к оптометристу</li>
+            <li>Кино-финал скана: вспышка всех узлов сетки → наводка результата</li>
+            <li>Пока камера активна — остальной экран в мягкой глубине резкости</li>
+            <li>Без COOP/COEP: threaded-WASM в пакете не существует (находка верификации)</li>
+          </ul>
+          <div class="accept"><b>Приёмка:</b> запись экрана без дрожи, PD сходится с рулеткой ±2 мм, отказ камеры ведёт в квиз, приватность цела.</div>
+        </div>
+      </div>
+
+      <div class="stage"><div class="dot">8</div>
+        <div class="stage-card">
+          <div class="stage-head"><h3>Единое оптическое пространство</h3><span class="badge M">M · день</span></div>
+          <p class="owner">Переходы между страницами — перекладка фокуса (View Transitions, растровые снимки — физика оправ цела). Стекло становится глубоким и чувствует руку.</p>
+          <ul>
+            <li>Главная впервые получает переход в обе стороны; шапка и рейл не мигают (свои снапшоты)</li>
+            <li>Progressive blur шапки — размытие тает книзу</li>
+            <li>Кромочный блик стекла следует за курсором / наклоном</li>
+            <li>Меню: только тинт-оверлей — никакого scale на контейнере с оправами (блокер верификации)</li>
+            <li>Форма: волна резкости по секции при успешной отправке</li>
+          </ul>
+          <div class="accept"><b>Приёмка:</b> покадровые скрины перехода, Firefox-фолбэк жив, пиксельный аудит при открытом меню.</div>
+        </div>
+      </div>
+
+      <div class="stage"><div class="dot">9</div>
+        <div class="stage-card">
+          <div class="stage-head"><h3>Сервисные рэк-фокусы</h3><span class="badge M">M · день</span></div>
+          <p class="owner">Добиваем провисающие секции переиспользованием построенного — и финальная ревизия всех бюджетов.</p>
+          <ul>
+            <li>FocusPreview: наведение на услугу/салон проявляет фото из расфокуса — «перевёл взгляд»</li>
+            <li>«Мастерская»: деталь вынимается на осмотр и вщёлкивается пружиной</li>
+            <li>FAQ: живые чертежи-ответы (5–6 пунктов в языке Мастерской)</li>
+            <li>Ревизия: вечных циклов ровно 2, детекты только в разрешённых местах, слои под контролем</li>
+          </ul>
+          <div class="accept"><b>Приёмка:</b> полный прогон всех секций (десктоп+мобила), LCP не хуже базовой отметки этапа 0, полный проход reduce-режима.</div>
+        </div>
+      </div>
+
+      <div class="stage"><div class="dot">Ф</div>
+        <div class="stage-card">
+          <div class="stage-head"><h3>Хотфикс «Событие подбора»</h3><span class="badge S">S · один вечер</span><span class="badge sig">сразу после этапа 4</span></div>
+          <p class="owner">Самая дешёвая и самая денежная починка плана: сейчас результат подбора доходит до формы записи только после перезагрузки страницы — воронка теряет живых клиентов каждый день.</p>
+          <ul>
+            <li>Результат квиза/камеры появляется в форме записи мгновенно, в ту же сессию</li>
+            <li>Честная метка источника заявки (сейчас всегда пишется «из квиза»)</li>
+            <li>Выбранный на лице силуэт больше не теряется</li>
+            <li>Аудит происхождения текущих фото парящих оправ (вопрос №1 владельцу — возможно, это каталожные кадры чужих брендов)</li>
+          </ul>
+          <div class="accept"><b>Приёмка:</b> квиз → форма в одной сессии без перезагрузки; лицензионные записи в коде не лгут.</div>
+        </div>
+      </div>
+
+      <div class="stage"><div class="dot">10</div>
+        <div class="stage-card">
+          <div class="stage-head"><h3>Контракт кадра</h3><span class="badge S">бриф — немедленно</span><span class="badge M">M · конвейер</span></div>
+          <p class="owner">Идущая сейчас фотосессия отдаёт сайту всё, что понадобится на годы. Техбриф фотографу — до следующего съёмочного дня; брак ловится в день съёмки, пока студия собрана.</p>
+          <ul>
+            <li>На каждую оправу: 9 ракурсов + вращение 48 кадров + миллиметры промеров</li>
+            <li>Серии «наведения фокуса» камерой (24–36 кадров) — сырьё кино-страниц моделей</li>
+            <li>PNG с прозрачностью для 8–12 оправ — открывает тёмные зоны и перелёты</li>
+            <li>Флагманы — съёмка под будущую 3D-оцифровку (поворотный стол, три высоты, макро текстур)</li>
+            <li>Модели с 6 формами лица; салоны: вечерние фасады, интерьеры, видео-лупы, вертикали</li>
+            <li>Конвейер приёмки: нормализация белого в день съёмки, автоматическая проверка бюджетов веса</li>
+          </ul>
+          <div class="accept"><b>Приёмка:</b> бриф у фотографа (дата зафиксирована); первые 10 оправ в каталоге файлов; конвейер доказан на пилоте.</div>
+        </div>
+      </div>
+
+      <div class="stage"><div class="dot">11</div>
+        <div class="stage-card">
+          <div class="stage-head"><h3>Паспорт оправы</h3><span class="badge M">M · день</span></div>
+          <p class="owner">У товара появляется машиночитаемое тело: размеры в мм, человеческая шкала ширины, посадка, наличие, цена, капсула. Плюс правовая гигиена — до витрины, не после.</p>
+          <ul>
+            <li>Каталог оправ как данные с автопроверкой: сборка падает на битом фото или опечатке в миллиметрах</li>
+            <li>Правило «что где живёт»: всё камерное умирает с вкладкой, наружу — только выбор клиента</li>
+            <li>Политика конфиденциальности + строка согласия в форме; вопрос юристу по закону о персональных данных</li>
+            <li>Печатная таблица для проверки оптометристами (рекомендации «форма лица → оправа»)</li>
+            <li>Защита от спама без внешних сервисов</li>
+          </ul>
+          <div class="accept"><b>Приёмка:</b> нарочно испорченный каталог роняет сборку; заявка в Telegram несёт каталожный номер и салон.</div>
+        </div>
+      </div>
+
+      <div class="stage signature"><div class="dot">12</div>
+        <div class="stage-card">
+          <div class="stage-head"><h3>Витрина</h3><span class="badge XL">XL · две сессии</span><span class="badge sig">★ моменты №6 и №8</span></div>
+          <p class="owner">Второй контур сайта: страницы коллекций и кино-страницы моделей. Редкая editorial-выкладка (урок Gentle Monster: дефицит на полке = цена), а не плотный маркетплейс.</p>
+          <ul>
+            <li>Каталог: фильтры по силуэту, материалу, цвету и ширине словами; «подойдёт вашей форме» предвыбирается после подбора</li>
+            <li>Тихий размерный бейдж «ваша ширина» на подходящих карточках</li>
+            <li>Страница модели: кино-кадр, наведение фокуса скроллом (снято камерой), вращение под пальцем, чертёжные размеры языком «Мастерской»</li>
+            <li>Фото перелетает из сетки в заголовок страницы; мгновенные переходы (предзагрузка)</li>
+            <li>Шапка и навигация работают на всех страницах; мобильная навигация каталога</li>
+            <li>Прелоадер не срабатывает посреди сессии (найдено скептиком — починено здесь)</li>
+            <li>Поисковая выдача: разметка товара, красивые превью ссылок, карта сайта</li>
+          </ul>
+          <div class="accept"><b>Приёмка:</b> путь покупателя на эмуляции Galaxy A54 — первым пунктом; скорость страницы модели ≤2,5 с; вес до первого касания ≤1,5 МБ.</div>
+        </div>
+      </div>
+
+      <div class="stage signature"><div class="dot">13</div>
+        <div class="stage-card">
+          <div class="stage-head"><h3>Полка и резерв</h3><span class="badge M">M–L</span><span class="badge sig">★ момент №10</span></div>
+          <p class="owner">Главная конверсионная механика: клиент собирает поднос примерки онлайн — салон встречает готовым подносом. Перед публикацией — тестовая неделя на одном салоне: проверяем людей, не код.</p>
+          <ul>
+            <li>Полка до 7 оправ, без регистрации; при возврате проявляется первой — «вас ждут»</li>
+            <li>Бронь прямо со страницы модели и полки; менеджер нужного салона получает список в Telegram</li>
+            <li>До операционного «да» салонов — «Подготовим к вашему визиту»; «Держим 3 дня» — только после решения владельца</li>
+            <li>Если Telegram недоступен — клиенту сразу даётся прямая ссылка с готовым текстом заявки</li>
+            <li>Наличие — честной формулировкой «обычно есть в …» (жёсткие остатки — только с товароучётом)</li>
+          </ul>
+          <div class="accept"><b>Приёмка:</b> полный путь каталог → полка → бронь → сообщение в чат нужного салона; первый экран главной не потяжелел ни на байт.</div>
+        </div>
+      </div>
+
+      <div class="stage signature"><div class="dot">14</div>
+        <div class="stage-card">
+          <div class="stage-head"><h3>Примерка 2.5D</h3><span class="badge L">L · 1–2 дня</span><span class="badge sig">★ момент №7</span></div>
+          <p class="owner">Примерка соединяется с товаром и миллиметрами: честная поза головы (матрица уже вычисляется — начинаем её читать), реальные модели вместо абстрактных силуэтов, пересылаемый кадр.</p>
+          <ul>
+            <li>Оправа держится на лице при поворотах: честные углы, дужки прячутся за виски, сглаживание дрожи</li>
+            <li>Метрический масштаб по радужке: PD и ширина лица в настоящих миллиметрах</li>
+            <li>Реальные оправы с фотосессии в примерке (фото-ракурсы с перспективой)</li>
+            <li>«Эта оправа шире вашего лица примерно на 4 мм» — ориентир, не рецепт</li>
+            <li>Кадр примерки → нативное «поделиться»; рядом «Забронировать эту»</li>
+          </ul>
+          <div class="accept"><b>Приёмка:</b> запись экрана — без дрожи и «плыва»; PD сверен рулеткой ±2 мм; кадр уходит в Telegram нативно.</div>
+        </div>
+      </div>
+
+      <div class="stage"><div class="dot">15</div>
+        <div class="stage-card">
+          <div class="stage-head"><h3>Третье измерение</h3><span class="badge XL">XL · две сессии</span><span class="badge sig">гейт: санкция владельца</span></div>
+          <p class="owner">Уровень Ray-Ban: настоящие 3D-модели собственных оправ на лице. Стартует только после пилота оцифровки 5 оправ двумя способами и вашего «да» на three.js внутри ленивой сборки камеры (главная не тяжелеет ни на байт).</p>
+          <ul>
+            <li>Пилот: сервис 2D→3D против ручного моделирования — сравнение на самой сложной оправе</li>
+            <li>Голова заслоняет дужки честно; свет — студийная карта с фотосессии</li>
+            <li>Смена оправы на лице быстрее 0,3 с; примерка 2.5D остаётся вечным запасным путём</li>
+            <li>Жёсткие бюджеты: модель ≤1,2 МБ, стабильные 25–30 кадров/с на Galaxy A54</li>
+          </ul>
+          <div class="accept"><b>Приёмка:</b> 5 минут на живом A54 без просадок; все запасные пути проходимы руками.</div>
+        </div>
+      </div>
+
+      <div class="stage signature"><div class="dot">16</div>
+        <div class="stage-card">
+          <div class="stage-head"><h3>Петли возврата и мера</h3><span class="badge M">M · день</span><span class="badge sig">★ момент №9</span></div>
+          <p class="owner">Повод вернуться через год — по делу, не по спаму. И воронка впервые становится измеримой.</p>
+          <ul>
+            <li>«Тихий дроп»: тизер наводится по реальной готовности капсулы (не по дате — дата малого бизнеса поедет)</li>
+            <li>«О поступлениях — в канале»: подписка на Telegram-канал вместо баз подписчиков</li>
+            <li>«Напомнить о проверке зрения через год» — файл-напоминание в календарь, ноль хранения данных</li>
+            <li>Отзывы с фото клиентов — батч-акцией с письменным согласием (6–10 до публикации блока)</li>
+            <li>Единый «щелчок фокуса» на все успехи + словарь вибраций (10/20/30 мс)</li>
+            <li>Аналитика воронки без биометрии (после вашего «да» на Vercel Analytics)</li>
+          </ul>
+          <div class="accept"><b>Приёмка:</b> события воронки видны на тестовом прогоне; напоминание срабатывает; вибрации различимы на живом Android.</div>
+        </div>
+      </div>
+
+      <div class="stage"><div class="dot">17</div>
+        <div class="stage-card">
+          <div class="stage-head"><h3>Оправа-актёр</h3><span class="badge M">M · день</span><span class="badge sig">гейт: свои кадры</span></div>
+          <p class="owner">Парящие оправы из декорации становятся героями и продавцами — как только приезжают кадры СВОИХ оправ с фотосессии. Код давно спит готовым.</p>
+          <ul>
+            <li>Hero-оправа просыпается: перетаскивание с пружинным возвратом, отклик на наклон телефона, живая тень</li>
+            <li>Оправы с прозрачностью живут на тёмных зонах и перелетают между страницами</li>
+            <li>Клик по парящей оправе — переход на её страницу в каталоге (ярлык-сосед, физика цела)</li>
+            <li>«Путешествие» оправы по главной — монтажными склейками расфокуса, не полётом</li>
+          </ul>
+          <div class="accept"><b>Приёмка:</b> пиксельный аудит ±1 по всем точкам; проверка на живом Android; текст нигде не перекрыт.</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">Решения за владельцем</div>
+    <h2 class="">Десять вопросов — у каждого есть безопасный дефолт</h2>
+    <p class="intro">Пока ответа нет, план исполняет дефолт — работа не блокируется, и никто не решает за вас. Пересмотр «запрещено навсегда» работает только через вас (как это уже было со стеклом).</p>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Вопрос</th><th>Дефолт до ответа</th><th>Что открывает ответ</th></tr></thead>
+        <tbody>
+          <tr class="hot"><td class="sec">Чьи текущие фото парящих оправ?</td><td>Считаем чужими каталожными (Safilo/Armani/Pierre Cardin) — на них не строим ничего кликабельного</td><td class="stg">хотфикс Ф</td></tr>
+          <tr class="hot"><td class="sec">three.js в примерке (только ленивая сборка камеры, главная не тяжелеет)</td><td>Примерка 2.5D — уже сильный уровень</td><td class="stg">этап 15 · 3D</td></tr>
+          <tr><td class="sec">Цены в каталоге: суммы в UZS или «цена в салоне»?</td><td>«Цена в салоне» (люкс-механика Rolex)</td><td class="stg">этап 12</td></tr>
+          <tr class="hot"><td class="sec">«Держим 3 дня»: готовы ли салоны держать поднос? Тестовая неделя на Юнусабаде</td><td>«Подготовим к вашему визиту» — без срока</td><td class="stg">этап 13</td></tr>
+          <tr><td class="sec">Публиковать честные остатки капсул («№ 07 из 30»)?</td><td>Только тизер, без чисел</td><td class="stg">этап 16</td></tr>
+          <tr><td class="sec">Счётчик «Полка · 3» в шапке — опись или геймификация?</td><td>Полка без видимого числа</td><td class="stg">этап 13</td></tr>
+          <tr><td class="sec">Vercel Analytics (измерение воронки) и Upstash (антиспам)?</td><td>Без них — воронка не измеряется</td><td class="stg">этапы 11 · 16</td></tr>
+          <tr><td class="sec">Юрист по закону «О персональных данных» (заявки через Telegram)</td><td>Статус-кво уже несёт риск; политика публикуется в любом случае</td><td class="stg">этап 11</td></tr>
+          <tr><td class="sec">Кто отнесёт оптометристам таблицу «форма лица → оправа»?</td><td>Размерные бейджи работают; стилевые советы скрыты</td><td class="stg">этап 12</td></tr>
+          <tr><td class="sec">Звук</td><td colspan="2">Рекомендация исследования и жюри: не вводить — сайт беззвучен, отклик закрывает вибрация</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">Карта секций</div>
+    <h2 class="">Что получает каждая секция</h2>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Секция</th><th>Что нового</th><th>Этапы</th></tr></thead>
+        <tbody>
+          <tr><td class="sec">Прелоадер «op»</td><td>Эстафета фокуса: знак растворяется в расфокус синхронно с наводкой hero — без паузы. Глаза авторские, не меняются</td><td class="stg">3</td></tr>
+          <tr><td class="sec">Hero</td><td>Полная раскадровка на всех устройствах; после интро — микро-рэк-фокус за взглядом, гиро-параллакс на Android</td><td class="stg">2 · 3</td></tr>
+          <tr class="hot"><td class="sec">Манифест «О нас»</td><td>Скролл-титры + «Зона ясного зрения»: пятно резкости под рукой, прочитанное — резкое навсегда</td><td class="stg">3 · 4</td></tr>
+          <tr class="hot"><td class="sec">Зрение (шторки)</td><td>Честные −6 дптр непрерывным шейдерным размытием, счётчик диоптрий, инерция, халяция, колесо/стрелки</td><td class="stg">6</td></tr>
+          <tr><td class="sec">Услуги</td><td>Фото-превью услуги из расфокуса при наведении; на таче — фокус по центру экрана</td><td class="stg">2 · 9</td></tr>
+          <tr><td class="sec">Экспертиза</td><td>Цифры наводятся на резкость синхронно с пробегом; знак Сивцева виден и на мобиле</td><td class="stg">2 · 3</td></tr>
+          <tr class="hot"><td class="sec">Мастерская</td><td>Лупа-линза ходит по чертежу; деталь вынимается на осмотр; штрихи рисуются и на телефоне</td><td class="stg">2 · 5 · 9</td></tr>
+          <tr><td class="sec">Бренды</td><td>Лента смазывается на разгоне скролла и наводится при торможении</td><td class="stg">3</td></tr>
+          <tr class="hot"><td class="sec">Коллекции</td><td>Честная WebGL-линза: преломление, дисперсия, зум колесом; long-press на таче</td><td class="stg">5</td></tr>
+          <tr class="hot"><td class="sec">Подбор по лицу</td><td>Паспорт посадки: PD и скор посадки, оверлей 60 fps без дрожи, shareable-карточка, кино-финал скана</td><td class="stg">7</td></tr>
+          <tr><td class="sec">Атмосфера</td><td>Настоящая глубина резкости: запечённый bokeh-двойник едет с другой скоростью</td><td class="stg">3</td></tr>
+          <tr><td class="sec">Отзывы</td><td>Смена цитат — рэк-фокус «перевёл взгляд»; счётчик — фокусировочное кольцо</td><td class="stg">3</td></tr>
+          <tr><td class="sec">Салоны</td><td>Превью фасада из расфокуса — «увидеть, куда идёшь»; волосок-выноска у адреса</td><td class="stg">9</td></tr>
+          <tr><td class="sec">FAQ</td><td>Живые чертежи-ответы: толщина линз слайдером, фотохром, прогрессивы</td><td class="stg">9</td></tr>
+          <tr><td class="sec">CTA / форма</td><td>Стекло с бликом за рукой; волна резкости по секции при успешной отправке</td><td class="stg">8</td></tr>
+          <tr><td class="sec">404</td><td>Зрачки следят за тапом и наклоном; тап наводит таблицу Сивцева каскадом</td><td class="stg">2</td></tr>
+          <tr><td class="sec">Переходы страниц</td><td>Рэк-фокус между маршрутами; главная впервые получает переход (физика оправ цела)</td><td class="stg">8</td></tr>
+          <tr><td class="sec">Швы глав</td><td>Раскрытие волоска ведётся скроллом, зрачок метки провожает взгляд</td><td class="stg">3</td></tr>
+          <tr class="hot"><td class="sec">Коллекции (страницы)</td><td>Каталог собственных оправ: editorial-выкладка, фильтры словами, «подойдёт вашей форме», размерные бейджи</td><td class="stg">11 · 12</td></tr>
+          <tr class="hot"><td class="sec">Страница модели</td><td>Кино-кадр, наведение фокуса скроллом (снято камерой), вращение 48 кадров, чертёж размеров, «Примерить на себе», «Отложить в салоне»</td><td class="stg">12</td></tr>
+          <tr class="hot"><td class="sec">Полка</td><td>Поднос примерки без регистрации: до 7 оправ, бронь одним тапом, Telegram менеджеру нужного салона</td><td class="stg">13</td></tr>
+          <tr class="hot"><td class="sec">Примерка (эволюция)</td><td>Честная поза → реальные оправы → кадр «поделиться» → (после санкции) настоящие 3D-модели</td><td class="stg">14 · 15</td></tr>
+          <tr><td class="sec">Капсулы и возврат</td><td>«Тихий дроп» по готовности, канал поступлений, напоминание о проверке зрения, отзывы с фото</td><td class="stg">16</td></tr>
+          <tr><td class="sec">Парящие оправы</td><td>Hero просыпается (drag/гиро/наклон), оправы-товары кликабельны, прозрачные PNG — на тёмных зонах</td><td class="stg">10 · 17</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="drama-caption">★ — секции с подписными вау-моментами</div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">Технологии</div>
+    <h2 class="">Дисциплина стека: точность вместо тоннажа</h2>
+    <div class="tech">
+      <div class="tech-col">
+        <h3>Добавляем (всё — лениво)</h3>
+        <div class="tags">
+          <span class="tag">ogl <small>~15–25 КБ · шейдеры линзы и шторки</small></span>
+          <span class="tag">next-view-transitions <small>~3 КБ · переходы</small></span>
+          <span class="tag">sharp <small>dev · запекание размытий</small></span>
+          <span class="tag">autoprefixer <small>dev · страховка Safari</small></span>
+          <span class="tag">zod <small>v2.0 · автопроверка каталога на сборке</small></span>
+          <span class="tag">three.js <small>v2.0 · ТОЛЬКО ленивая сборка 3D-примерки, после санкции</small></span>
+        </div>
+        <p>Итого: +≤60 КБ отложенного кода; критический путь первого экрана: +≤5 КБ; витрина не добавляет в него ни байта (полка и тяжёлые виджеты грузятся лениво). Страховка канвасов — невидимый renderScale по фактическому FPS: деградирует внутреннее разрешение, никогда — сам эффект. У каждой страницы витрины — собственный бюджет скорости (Lighthouse ≥90, вес до касания ≤1,5 МБ, память кадров под контролем).</p>
+      </div>
+      <div class="tech-col">
+        <h3>Сознательно не берём</h3>
+        <div class="tags">
+          <span class="tag no">react-three-fiber / three на главной</span>
+          <span class="tag no">r3f-scroll-rig</span>
+          <span class="tag no">GSAP</span>
+          <span class="tag no">liquidGL</span>
+          <span class="tag no">SplitType</span>
+          <span class="tag no">syncTouch у Lenis</span>
+          <span class="tag no">COOP/COEP-заголовки</span>
+          <span class="tag no">звук · частицы · infinite scroll</span>
+          <span class="tag no">корзина · онлайн-оплата · аккаунты</span>
+          <span class="tag no">вендорский виджет примерки (iframe)</span>
+          <span class="tag no">e-mail-маркетинг · попапы · таймеры</span>
+          <span class="tag no">CMS (пока каталог &lt;30 моделей)</span>
+        </div>
+        <p>Каждый отказ аргументирован в plan.md §7: вторые рендер-парадигмы, риски для физики оправ и нативного скролла, эффекты ради эффектов. Вендорская примерка (от $59/мес) отклонена отдельно: чужой iframe ломает обещание приватности «всё в памяти вкладки» и наш дизайн-язык — своя примерка остаётся активом бренда.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">Контроль качества</div>
+    <h2 class="">Приёмка каждого этапа — по приборам, не на глаз</h2>
+    <div class="checks">
+      <div class="check"><b>Пиксельный аудит оправ</b>cdp-audit.mjs: белая точка multiply-кадров с допуском ±1 — после каждого шага рядом с оправами</div>
+      <div class="check"><b>Скриншот-приёмка</b>shot-site.mjs: кадры каждой затронутой секции, десктоп и мобила, сравнение с предыдущими</div>
+      <div class="check"><b>Мобильная честность</b>эмуляция 390×844 + CPU×4, тяжёлые эффекты гоняются 5+ минут (троттлинг разогретого телефона)</div>
+      <div class="check"><b>Гидрация</b>cdp-hydration.mjs: ни одного mismatch-варнинга — против «вечно невидимых» оправ</div>
+      <div class="check"><b>Доступность</b>полный проход prefers-reduced-motion: статично, резко, функционально</div>
+      <div class="check"><b>Скорость</b>LCP и вес первого экрана не хуже базовой отметки, зафиксированной на этапе 0</div>
+      <div class="check"><b>Канон синхронно</b>правки CLAUDE.md/PROJECT.md тем же коммитом — чтобы следующая сессия не «починила» обратно</div>
+      <div class="check"><b>Путь покупателя (v2.0)</b>на этапах витрины прогон «реклама → каталог → полка → заявка» на эмуляции Galaxy A54 — ПЕРВЫМ пунктом приёмки</div>
+      <div class="check"><b>Валидатор каталога (v2.0)</b>сборка падает на битом фото, опечатке в миллиметрах и протухших остатках капсул — данные не могут лгать</div>
+      <div class="check"><b>Бюджеты страниц (v2.0)</b>у каждой страницы витрины свой гейт: Lighthouse ≥90, скорость ≤2,5 с, вес ≤1,5 МБ, память кадров под потолком</div>
+      <div class="check"><b>Отчёт владельцу</b>в конце этапа — простым языком: что изменилось, что проверено, что дальше</div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>Полная техническая версия для исполнителя — <span class="mono">plan.md</span> в корне проекта (этапы, файлы, константы, формулировки правок канона, решённые развилки, пакет вопросов владельцу §10).</p>
+    <p style="margin-top:8px">План v2.0: две волны — 40+ агентов, шесть концептов, два жюри, восемь скептиков против реального кода · июль 2026 · «дорого = точность, а не тоннаж» · вопросы коммерции решаются в пользу честного обещания, визита в салон и материальной памяти вместо цифр.</p>
+  </div>
+</footer>
+
+</body>
+</html>
