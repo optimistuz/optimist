@@ -20,6 +20,28 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Как проверять (приёмка по приборам)
+
+Приёмка на этом проекте — по скриншотам и пиксельным аудитам, не «на глаз».
+Все скрипты требуют запущенного dev-сервера на `:3000` (`npm run dev`), кроме
+запекания ассетов и веса сборки.
+
+**Инструменты приёмки** (`scripts/`, запуск `node scripts/<файл>`):
+
+- `diag-firstload.mjs` — первый заход vs рефреш, консоль и гидрация `/`.
+- `cdp-audit.mjs` — пиксельный тест белой точки парящих оправ (допуск ±1).
+- `cdp-whitepoint.mjs`, `cdp-hydration.mjs` — белая точка и гидрация точечно.
+- `shot-site.mjs` — кадры dev-сайта (env `SHOTS`, поля `mouse`/`mobile`).
+- `bake-blur.mjs` — запекание расфокуса/светов в статику (**вручную**, не в build):
+  `node scripts/bake-blur.mjs blur public/photos/interior.jpg`.
+
+**Мобильная приёмка** (обязательна для тяжёлых эффектов): Chrome DevTools →
+эмуляция **390×844 + CPU throttling 4×**, прогон каждого эффекта **5+ минут**
+(троттлинг разогретого телефона). Эталон аудитории — Galaxy A15/A54.
+
+**Бюджеты веса и производительности** — `docs/perf-budgets.md` (закон; вес
+first-load JS смотреть в выводе `npm run build`, Lighthouse mobile — из DevTools).
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
