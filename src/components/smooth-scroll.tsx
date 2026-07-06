@@ -2,8 +2,11 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
+  useMemo,
+  useRef,
   useState,
 } from "react";
 import Lenis from "lenis";
@@ -46,6 +49,26 @@ export function useScrollVelocity(): MotionValue<number> {
 }
 
 /**
+ * Единый rAF-тикер (закон движка №4, CLAUDE.md). Один requestAnimationFrame
+ * на весь сайт; порядок кадра: lenis.raf(time) → колбэки эффектов (addTick) →
+ * [рендер ogl-канвасов — реестр появится на этапе 5]. Новые эффекты
+ * подписываются сюда, а не заводят собственный rAF.
+ */
+export type Tick = (time: number) => void;
+
+interface Ticker {
+  addTick: (fn: Tick) => void;
+  removeTick: (fn: Tick) => void;
+}
+
+export const TickerContext = createContext<Ticker | null>(null);
+
+/** Подписаться на единый тик (null, если провайдер выше по дереву отсутствует). */
+export function useTicker() {
+  return useContext(TickerContext);
+}
+
+/**
  * Глобальный плавный скролл (Lenis) + корректная навигация по якорям.
  * Оборачивает весь сайт в layout.tsx.
  * При включённом «уменьшить движение» Lenis не запускается, а якоря
@@ -58,23 +81,63 @@ export default function SmoothScroll({
 }) {
   const [lenis, setLenis] = useState<Lenis | null>(null);
 
+  // Реестр тика и управление жизнью цикла — в ref-ах (без ре-рендера).
+  const lenisRef = useRef<Lenis | null>(null);
+  const ticksRef = useRef<Set<Tick>>(new Set());
+  const rafRef = useRef(0);
+  const runningRef = useRef(false);
+
+  const loop = useCallback((time: number) => {
+    lenisRef.current?.raf(time);
+    ticksRef.current.forEach((fn) => fn(time));
+    // этап 5: здесь рендер ogl-канвасов после эффектов
+    rafRef.current = requestAnimationFrame(loop);
+  }, []);
+
+  const ensureRunning = useCallback(() => {
+    if (runningRef.current) return;
+    runningRef.current = true;
+    rafRef.current = requestAnimationFrame(loop);
+  }, [loop]);
+
+  const stopIfIdle = useCallback(() => {
+    // Цикл нужен, только пока есть Lenis (ему нужен raf) или живые тики.
+    if (!lenisRef.current && ticksRef.current.size === 0 && runningRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      runningRef.current = false;
+    }
+  }, []);
+
+  const ticker = useMemo<Ticker>(
+    () => ({
+      addTick: (fn) => {
+        ticksRef.current.add(fn);
+        ensureRunning();
+      },
+      removeTick: (fn) => {
+        ticksRef.current.delete(fn);
+        stopIfIdle();
+      },
+    }),
+    [ensureRunning, stopIfIdle]
+  );
+
   useEffect(() => {
     const prefersReduced = window.matchMedia(
       "(prefers-reduced-motion: reduce)"
     ).matches;
 
     let instance: Lenis | null = null;
-    let rafId = 0;
 
     if (!prefersReduced) {
-      instance = new Lenis({ duration: 1.2, smoothWheel: true });
+      // autoRaf:false — raf ведём сами, единым тикером (закон движка №4)
+      instance = new Lenis({ duration: 1.2, smoothWheel: true, autoRaf: false });
+      lenisRef.current = instance;
       setLenis(instance);
-      const raf = (time: number) => {
-        instance?.raf(time);
-        rafId = requestAnimationFrame(raf);
-      };
-      rafId = requestAnimationFrame(raf);
+      ensureRunning();
     }
+    // При reduce Lenis не создаётся; тикер спит, пока не появится тик
+    // (канвасы этапа 5). velocity остаётся 0 — существующее поведение.
 
     // Плавный переход по внутренним ссылкам-якорям (#id) с учётом хедера
     const onClick = (e: MouseEvent) => {
@@ -116,13 +179,16 @@ export default function SmoothScroll({
 
     return () => {
       document.removeEventListener("click", onClick);
-      cancelAnimationFrame(rafId);
       instance?.destroy();
+      lenisRef.current = null;
       setLenis(null);
+      stopIfIdle();
     };
-  }, []);
+  }, [ensureRunning, stopIfIdle]);
 
   return (
-    <LenisContext.Provider value={lenis}>{children}</LenisContext.Provider>
+    <LenisContext.Provider value={lenis}>
+      <TickerContext.Provider value={ticker}>{children}</TickerContext.Provider>
+    </LenisContext.Provider>
   );
 }

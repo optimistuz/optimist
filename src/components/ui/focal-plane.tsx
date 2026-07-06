@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import {
   motion,
   useMotionTemplate,
-  useReducedMotion,
   useScroll,
   useSpring,
   useTransform,
 } from "motion/react";
+import { useOpticalCapability } from "@/lib/use-optical-capability";
 
 /**
  * Фокальная плоскость страницы: изображение резкое в центре вьюпорта
@@ -32,17 +32,8 @@ export function FocalPlane({
   /** Максимальный blur у кромок вьюпорта, px (бюджет: ≤ 3). */
   max?: number;
 }) {
-  const reduce = useReducedMotion();
-  const [active, setActive] = useState(false);
+  const { full } = useOpticalCapability();
   const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const mq = window.matchMedia("(pointer: fine) and (min-width: 1024px)");
-    const update = () => setActive(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
 
   const { scrollYProgress } = useScroll({
     target: ref,
@@ -53,7 +44,7 @@ export function FocalPlane({
   const smooth = useSpring(blur, { stiffness: 140, damping: 32 });
   const filter = useMotionTemplate`blur(${smooth}px)`;
 
-  if (reduce || !active) {
+  if (!full) {
     return (
       <div ref={ref} className={className}>
         {children}

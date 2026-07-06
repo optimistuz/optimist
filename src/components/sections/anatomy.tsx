@@ -11,6 +11,7 @@ import {
   type Variants,
 } from "motion/react";
 import { useReduceAfterMount } from "@/lib/use-reduce-after-mount";
+import { useOpticalCapability } from "@/lib/use-optical-capability";
 import { Section } from "@/components/ui/section";
 import { Container } from "@/components/ui/container";
 import { Eyebrow } from "@/components/ui/eyebrow";
@@ -386,7 +387,9 @@ export default function Anatomy() {
   const active = hovered ?? pinned;
 
   // ---- Завершение (8.1) + близость курсора (8.2) ----
-  const [desktop, setDesktop] = useState(false);
+  // Близость курсора — desktop-поведение через единый шлюз способностей
+  // (desktopMatch пока сохранён; снимается этапом 2).
+  const { full } = useOpticalCapability();
   const [celebrate, setCelebrate] = useState(false); // фаза «штрихи в brand»
   const [celebrating, setCelebrating] = useState(false); // окно stagger-задержки
   const [showDone, setShowDone] = useState(false); // строка-награда
@@ -394,14 +397,6 @@ export default function Anatomy() {
   const viewedRef = useRef<Set<number>>(new Set());
   const celebratedRef = useRef(false);
   const svgRef = useRef<SVGSVGElement>(null);
-
-  useEffect(() => {
-    const mq = window.matchMedia("(pointer: fine) and (min-width: 1024px)");
-    const update = () => setDesktop(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
 
   const triggerCelebrate = () => {
     if (celebratedRef.current) return;
@@ -454,7 +449,7 @@ export default function Anatomy() {
   // Близость курсора (desktop): подсвечивает ближайшую деталь, не выбирает.
   // Активная деталь приоритетнее — тогда близость гасим.
   useEffect(() => {
-    if (reduce || !desktop || active !== null) {
+    if (!full || active !== null) {
       setNear(null);
       return;
     }
@@ -497,7 +492,7 @@ export default function Anatomy() {
       window.removeEventListener("mousemove", onMove);
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [reduce, desktop, active]);
+  }, [full, active]);
 
   // ---- Разнесённая сборка: прогресс скролла сквозь чертёж ----------
   // 0 — обёртка чертежа у нижней кромки вьюпорта, 1 — у верхней.

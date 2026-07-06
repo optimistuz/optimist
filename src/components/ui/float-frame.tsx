@@ -14,6 +14,7 @@ import {
   useTransform,
 } from "motion/react";
 import { cn } from "@/lib/cn";
+import { useOpticalCapability } from "@/lib/use-optical-capability";
 import { FLOAT_INTRINSIC, PHOTOS, type PhotoSlot } from "@/content/photos";
 import { useIntroDone } from "@/components/ui/intro";
 import { DURATION, EASE } from "@/lib/motion";
@@ -109,18 +110,14 @@ export function FloatFrame({
   const rootRef = useRef<HTMLDivElement>(null);
   const prefersReduce = useReducedMotion();
   const [mounted, setMounted] = useState(false);
-  const [desktop, setDesktop] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-    const mq = window.matchMedia("(pointer: fine) and (min-width: 1024px)");
-    const update = () => setDesktop(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
+  useEffect(() => setMounted(true), []);
   const reduce = mounted && !!prefersReduce;
-  // Фильтры — десктопная роскошь (мобайл: GPU дороже эффекта)
-  const filtersOn = mounted && desktop && !reduce;
+  // Способности — через единый шлюз (закон движка №5). desktopMatch внутри
+  // useOpticalCapability пока СОХРАНЁН (снимается этапом 2 — мобильный паритет);
+  // поведение идентично прежнему локальному детекту. filtersOn = полный
+  // опыт; pointerFine — природа ВВОДА (drag/cursorTilt), не perf-гейт.
+  const { full, pointerFine } = useOpticalCapability();
+  const filtersOn = full;
 
   // Триггер появления: hero ждёт прелоадер, деко — вход во вьюпорт
   const introDone = useIntroDone();
@@ -140,12 +137,14 @@ export function FloatFrame({
   });
 
   /* ---- Параллакс + дрейф + наклон (один транформ-слой) ---- */
-  const amplitude = (1 - parallaxSpeed) * 240 * (desktop ? 1 : 0.5);
+  const amplitude = (1 - parallaxSpeed) * 240 * (full ? 1 : 0.5);
   const parallaxY = useTransform(visibility, [0, 1], [amplitude, -amplitude]);
   const drift = useTransform(visibility, [0, 1], [-2, 2]);
 
   const pointerX = useMotionValue(0); // курсор: −1…1 от центра вьюпорта
-  const tiltOn = cursorTilt && filtersOn;
+  // cursorTilt — природа ввода: точный указатель И полный опыт (pointerFine
+  // сейчас ⊂ full, но гейтим явно — на этапе 2 full расширится на мобилу).
+  const tiltOn = cursorTilt && filtersOn && pointerFine;
   useEffect(() => {
     if (!tiltOn) return;
     const onMove = (e: MouseEvent) => {
@@ -164,7 +163,7 @@ export function FloatFrame({
   });
 
   /* ---- Перетаскивание (только hero, только desktop) ---- */
-  const dragEnabled = !!draggable && mounted && desktop && !reduce;
+  const dragEnabled = !!draggable && full && pointerFine;
   const dragX = useMotionValue(0);
   const dragY = useMotionValue(0);
   // 1 пока тащим — рука в приоритете, cursorTilt и rotateDrift замолкают
@@ -247,7 +246,7 @@ export function FloatFrame({
       entranceOpacity.set(1);
       return;
     }
-    if (!desktop) entranceBlur.set(0); // мобайл: появление без blur
+    if (!full) entranceBlur.set(0); // мобайл: появление без blur
     else
       animate(entranceBlur, 0, {
         duration: DURATION.slow,
@@ -259,7 +258,7 @@ export function FloatFrame({
       ease: EASE,
       delay: 0.25,
     });
-  }, [mounted, started, reduce, desktop, entrance, entranceBlur, entranceOpacity]);
+  }, [mounted, started, reduce, full, entrance, entranceBlur, entranceOpacity]);
 
   // Фокальная глубина реквизита: резко у центра, ≤2px у кромок
   const focalRaw = useTransform(visibility, (p) =>

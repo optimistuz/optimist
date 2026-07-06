@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import {
   animate,
   motion,
   useMotionTemplate,
   useMotionValue,
-  useReducedMotion,
   useSpring,
   useTransform,
 } from "motion/react";
 import { useScrollVelocity } from "@/components/smooth-scroll";
+import { useOpticalCapability } from "@/lib/use-optical-capability";
 import { EASE } from "@/lib/motion";
 
 /**
@@ -37,17 +37,8 @@ export function MotionFocus({
   children: ReactNode;
   className?: string;
 }) {
-  const reduce = useReducedMotion();
-  const [active, setActive] = useState(false);
+  const { full } = useOpticalCapability();
   const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const mq = window.matchMedia("(pointer: fine) and (min-width: 1024px)");
-    const update = () => setActive(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
 
   const velocity = useScrollVelocity();
   // |velocity| ≥ 30 → blur 2px; в покое → 0 (useTransform клампит диапазон)
@@ -62,7 +53,7 @@ export function MotionFocus({
   const filter = useMotionTemplate`blur(${combined}px)`;
 
   useEffect(() => {
-    if (reduce || !active) return;
+    if (!full) return;
     const onArrive = (e: Event) => {
       const id = (e as CustomEvent<string>).detail;
       const host = ref.current;
@@ -75,9 +66,9 @@ export function MotionFocus({
     };
     window.addEventListener("anchor-arrive", onArrive);
     return () => window.removeEventListener("anchor-arrive", onArrive);
-  }, [reduce, active, pulse]);
+  }, [full, pulse]);
 
-  if (reduce || !active) {
+  if (!full) {
     return <div className={className}>{children}</div>;
   }
 

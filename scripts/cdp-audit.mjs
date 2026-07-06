@@ -6,6 +6,12 @@
  * рядом»: RGB обязаны совпадать канал в канал — иначе у multiply-кадра
  * виден шов.
  *
+ * NB (этап 1): multiply-оправа переехала из hero в деко-секции — hero теперь
+ * портрет (FocusPortrait, /hero/portrait.png: маски + rack-focus, НЕ multiply),
+ * а slot hero-float в photos.ts зарегистрирован, но не рендерится ни одним
+ * компонентом. Аудит нацелен на deco-2 (#expertise) — единственный уникальный
+ * slug среди пяти FloatFrame-секций (deco-1/deco-3 встречаются по два раза).
+ *
  * Зерно body::after (плёночная фактура, opacity 0.022, fixed поверх всего
  * вьюпорта) на время строгого замера отключается: оно перебивает каждый
  * пиксель шумом ±1 НЕЗАВИСИМО от положения оправ и шов создать не может,
@@ -288,23 +294,6 @@ function quadIntersectsRect(q, r) {
 
 /* ================= Кандидаты пар [u_in, v_in, u_out, v_out] ============ */
 const CANDIDATES = {
-  "hero-float": [
-    // левая кромка (фон фото слева чистый, тень — внизу слева, обходим)
-    [0.06, 0.10, -0.06, 0.10],
-    [0.06, 0.30, -0.06, 0.30],
-    [0.06, 0.45, -0.06, 0.45],
-    [0.06, 0.55, -0.06, 0.55],
-    // верхняя кромка
-    [0.30, 0.06, 0.30, -0.10],
-    [0.55, 0.06, 0.55, -0.10],
-    // нижняя кромка (для состояния параллакса, когда верх ушёл за вьюпорт)
-    [0.30, 0.94, 0.30, 1.12],
-    [0.45, 0.94, 0.40, 1.12],
-    [0.55, 0.94, 0.55, 1.12],
-    [0.6, 0.94, 0.62, 1.12],
-    [0.7, 0.94, 0.72, 1.12],
-    [0.75, 0.94, 0.78, 1.12],
-  ],
   "deco-2": [
     [0.45, 0.06, 0.45, -0.14],
     [0.55, 0.06, 0.55, -0.14],
@@ -494,39 +483,27 @@ async function main() {
         `getComputedStyle(document.querySelector('img[src*="${slot}"]')).filter`
       );
 
-    // hero, покой: контрольный замер С зерном (допуск ±1)…
-    report.checks.push({ name: "hero img filter (покой)", value: await imgFilter("hero-float") });
-    await testPairs(api, report, "hero-float", "rest@1440+grain(±1)", 1440, 900, 1);
-    // …и строгий без зерна (канал в канал)
-    await api.grainOff();
-    await testPairs(api, report, "hero-float", "rest@1440", 1440, 900, 0);
-
-    // hero, середина параллакса + рэк-фокус (blur активен)
-    await scrollTo(320);
-    await sleep(1500);
-    report.checks.push({
-      name: "hero img filter (скролл 320 — рэк-фокус)",
-      value: await imgFilter("hero-float"),
-      layerTransform: await evaluate(
-        `getComputedStyle(document.querySelector('img[src*="hero-float"]').parentElement).transform`
-      ),
-    });
-    await testPairs(api, report, "hero-float", "parallax@1440", 1440, 900, 0);
-
-    // deco-2: центр вьюпорта (резкость) и сдвиг (focal blur активен)
+    // Multiply-оправа теперь живёт в деко-секциях (hero перешёл на портрет,
+    // slot hero-float не рендерится). Аудитим deco-2 (#expertise).
     const decoTop = await evaluate(`(() => {
       const el = document.querySelector('img[src*="deco-2"]');
       const r = el.getBoundingClientRect();
       return Math.round(r.top + window.scrollY + r.height / 2);
     })()`);
+
+    // deco-2 у центра вьюпорта (резкость): контрольный замер С зерном (±1)…
     await scrollTo(decoTop - 450);
     await sleep(2500); // entrance once + спокойный spring
     report.checks.push({
       name: "deco-2 img filter (у центра вьюпорта)",
       value: await imgFilter("deco-2"),
     });
+    await testPairs(api, report, "deco-2", "center@1440+grain(±1)", 1440, 900, 1);
+    // …и строгий без зерна (канал в канал)
+    await api.grainOff();
     await testPairs(api, report, "deco-2", "center@1440", 1440, 900, 0);
 
+    // deco-2 со сдвигом (focal blur активен)
     await scrollTo(decoTop - 450 - 240);
     await sleep(1500);
     report.checks.push({
@@ -544,15 +521,6 @@ async function main() {
       );
       await scrollTo(0);
       await sleep(400);
-      const heroOverlap = await evaluate(`(() => {
-        const els = document.querySelectorAll('#hero h1, #hero p, #hero a');
-        return [...els].map((e) => { const r = e.getBoundingClientRect();
-          return { tag: e.tagName, left: r.left, top: r.top, right: r.right, bottom: r.bottom }; });
-      })()`);
-      const hq = await api.getQuad('img[src*="hero-float"]');
-      const heroHits = hq
-        ? heroOverlap.filter((r) => quadIntersectsRect(hq, r)).map((r) => r.tag)
-        : [];
       const dTop = await evaluate(`(() => {
         const el = document.querySelector('img[src*="deco-2"]');
         if (!el) return null;
@@ -575,8 +543,6 @@ async function main() {
       report.checks.push({
         name: `ширина ${w}`,
         hscroll,
-        heroTextHits: heroHits,
-        heroOverlapAllowed: w < 1280,
         decoTextHits: decoHits,
       });
       await scrollTo(0);
@@ -589,33 +555,44 @@ async function main() {
       await scrollTo(0);
       const r = await evaluate(`(() => {
         const doc = document.documentElement;
-        const hero = document.querySelector('img[src*="hero-float"]');
         const deco = document.querySelector('img[src*="deco-2"]');
         return {
           hscroll: doc.scrollWidth - doc.clientWidth,
-          heroFilter: hero ? getComputedStyle(hero).filter : null,
-          heroVisible: hero ? hero.getBoundingClientRect().width > 0 : false,
           decoHidden: deco ? deco.getBoundingClientRect().width === 0 : 'нет узла',
         };
       })()`);
       report.checks.push({ name: `мобайл ${w}`, ...r });
     }
 
-    /* ---------- Середина entrance (multiply при 0<opacity<1) ---------- */
+    /* ---------- Середина entrance deco-2 (multiply при 0<opacity<1) ------ */
     await setViewport(1440, 900);
     await api.reload();
+    // после reload страница вверху; подводим deco-2 к нижней кромке вьюпорта,
+    // чтобы запустить его inView-entrance, и ловим момент 0<opacity<1
+    const decoTop2 = await evaluate(`(() => {
+      const el = document.querySelector('img[src*="deco-2"]');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return Math.round(r.top + window.scrollY + r.height / 2);
+    })()`);
     let entranceOpacity = "0";
-    for (let i = 0; i < 8; i++) {
-      await sleep(i === 0 ? 2100 : 220);
-      entranceOpacity = await evaluate(
-        `getComputedStyle(document.querySelector('img[src*="hero-float"]')).opacity`
-      );
-      const v = parseFloat(entranceOpacity);
-      if (v > 0.05 && v < 0.92) break;
+    if (decoTop2 != null) {
+      await scrollTo(decoTop2 - 780);
+      for (let i = 0; i < 12; i++) {
+        await sleep(i === 0 ? 60 : 80);
+        entranceOpacity = await evaluate(
+          `(() => { const el = document.querySelector('img[src*="deco-2"]'); return el ? getComputedStyle(el).opacity : '0'; })()`
+        );
+        const v = parseFloat(entranceOpacity);
+        if (v > 0.05 && v < 0.92) break;
+      }
     }
     await api.grainOff();
-    report.checks.push({ name: "mid-entrance: opacity в момент замера", value: entranceOpacity });
-    await testPairs(api, report, "hero-float", "mid-entrance@1440", 1440, 900, 0);
+    report.checks.push({
+      name: "mid-entrance deco-2: opacity в момент замера",
+      value: entranceOpacity,
+    });
+    await testPairs(api, report, "deco-2", "mid-entrance@1440", 1440, 900, 0);
 
     api.cdp.close();
   } finally {
@@ -630,10 +607,21 @@ async function main() {
     await api.setViewport(1440, 900);
     await api.navigate(URL_BASE + "/");
     await sleep(4500);
+    // доскроллить до deco-2 (в reduced-motion оправа — статичный резкий кадр)
+    const decoTop = await api.evaluate(`(() => {
+      const el = document.querySelector('img[src*="deco-2"]');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return Math.round(r.top + window.scrollY + r.height / 2);
+    })()`);
+    if (decoTop != null) {
+      await api.scrollTo(decoTop - 450);
+      await sleep(800);
+    }
     report.checks.push({
-      name: "reduced-motion: hero img",
+      name: "reduced-motion: deco-2 img",
       value: await api.evaluate(`(() => {
-        const img = document.querySelector('img[src*="hero-float"]');
+        const img = document.querySelector('img[src*="deco-2"]');
         const layer = img.parentElement;
         return {
           matchMedia: matchMedia('(prefers-reduced-motion: reduce)').matches,
@@ -644,7 +632,7 @@ async function main() {
       })()`),
     });
     await api.grainOff();
-    await testPairs(api, report, "hero-float", "reduced-motion@1440", 1440, 900, 0);
+    await testPairs(api, report, "deco-2", "reduced-motion@1440", 1440, 900, 0);
     api.cdp.close();
   } finally {
     chrome.kill();

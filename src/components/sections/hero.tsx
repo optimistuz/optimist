@@ -20,6 +20,7 @@ import { FocusPortrait } from "@/components/ui/focus-portrait";
 import { useIntroDone } from "@/components/ui/intro";
 import { hero } from "@/content/home";
 import { EASE } from "@/lib/motion";
+import { useOpticalCapability } from "@/lib/use-optical-capability";
 
 /**
  * Строка заголовка, ведомая мастер-прогрессом `p` (единая волна с портретом).
@@ -80,17 +81,11 @@ export default function Hero() {
   useEffect(() => setMounted(true), []);
   const reduce = mounted && !!prefersReduce;
 
-  // Полноценная сцена (блюр + фокус-окна + блик) — только desktop с точным
-  // указателем и не при reduced-motion. На мобиле дорого по GPU (правило).
-  const [isDesktop, setIsDesktop] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1024px) and (pointer: fine)");
-    const update = () => setIsDesktop(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
-  const scene = mounted && !reduce && isDesktop;
+  // Полноценная сцена (блюр + фокус-окна + блик) — единый шлюз способностей.
+  // desktopMatch внутри useOpticalCapability пока сохраняется (снимается
+  // этапом 2 — мобильный паритет); поведение идентично прежнему детекту.
+  const { full } = useOpticalCapability();
+  const scene = full;
 
   // КРИТИЧНО: вся волна ждёт окончания прелоадера «op». Повторный визит /
   // reduced-motion → introDone = true с первого кадра.
