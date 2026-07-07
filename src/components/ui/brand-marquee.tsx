@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useReducedMotion } from "motion/react";
 import { useScrollVelocity } from "@/components/smooth-scroll";
+import { useCenterFocus } from "@/lib/use-center-focus";
 
 /* ------------------------------------------------------------------
    Живая лента брендов (JS-маркиза на rAF).
@@ -26,6 +27,10 @@ export default function BrandMarquee({ items }: { items: string[] }) {
   const groupRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const hoverRef = useRef(false);
+
+  // Тач-эквивалент фокус-идиомы: лента наводится, когда проходит центр
+  // вьюпорта (на десктопе за это отвечает :hover). Наблюдается сама группа.
+  useCenterFocus(groupRef);
 
   useEffect(() => {
     if (reduce) return;

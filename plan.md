@@ -306,7 +306,7 @@ DOM (контент, SEO, a11y — неприкосновенная основа
 
 **Чего не делать:** не включать эффекты на мобиле (это этап 2); не менять амплитуды/потолки; не заводить канвасы; не трогать существующую шину velocity.
 
-**Приёмка:** визуально сайт идентичен (сравнить `shot-site.mjs` до/после — кадры совпадают); `cdp-hydration.mjs` чист; `cdp-audit.mjs` чист; grep-проверка `rg "matchMedia" src` (в коде — ДВОЙНЫЕ кавычки в строках): прямые вызовы остаются только в `use-optical-capability.ts`, `use-gaze.ts`, `lens-loupe.tsx` (до этапа 5), `pulse-word.tsx` (до этапа 4), `magnetic.tsx`, `testimonials.tsx` (coarse), `not-found-scene.tsx` (до этапа 2), `face-camera.tsx` (coarse), `smooth-scroll.tsx` (reduce) и CSS-медиа в globals.css.
+**Приёмка:** визуально сайт идентичен (сравнить `shot-site.mjs` до/после — кадры совпадают); `cdp-hydration.mjs` чист; `cdp-audit.mjs` чист; grep-проверка `rg "matchMedia" src` (в коде — ДВОЙНЫЕ кавычки в строках): прямые вызовы остаются только в `use-optical-capability.ts`, `lens-loupe.tsx` (до этапа 5), `pulse-word.tsx` (до этапа 4), `magnetic.tsx`, `testimonials.tsx` (coarse), `face-camera.tsx` (coarse), `intro.tsx` (reduce прелоадера), `smooth-scroll.tsx` (reduce) и CSS-медиа в globals.css. `use-gaze.ts` попадает в grep только упоминанием в докстринге — прямого вызова нет. `not-found-scene.tsx` держал вызов `(pointer: fine)` до этапа 2 — теперь мигрирован на `useGaze` (мышь / последний тап / Android-гиро) и из перечня убран.
 
 ---
 

@@ -7,18 +7,16 @@ import { useReducedMotion } from "motion/react";
  *
  * Возвращает два флага с РАЗНОЙ природой:
  *
- * - `full` — включён ли ПОЛНЫЙ оптический опыт. Сейчас
- *   `mounted && !reduce && desktopMatch`, где
- *   desktopMatch = «(pointer: fine) and (min-width: 1024px)».
- *   desktopMatch на ЭТОМ этапе (1) СОХРАНЯЕТСЯ — это чистый рефакторинг без
- *   смены поведения. Снимается ОДНИМ изменением здесь на этапе 2 (мобильный
- *   паритет). Это ЕДИНАЯ точка отката: если реальный парк устройств просядет,
- *   условие возвращается сюда и только сюда.
+ * - `full` — включён ли ПОЛНЫЙ оптический опыт: `mounted && !reduce`.
+ *   С этапа 2 (мобильный паритет) телефон получает полный опыт наравне с
+ *   десктопом — `desktopMatch` снят. Это ЕДИНАЯ точка отката: если реальный
+ *   парк устройств просядет, perf-гейт возвращается ТОЛЬКО сюда (дописать
+ *   обратно `&& matchMedia("(min-width:1024px)").matches`), и больше нигде.
  *
  * - `pointerFine` — «(pointer: fine)», признак ПРИРОДЫ ввода, НЕ perf-гейт.
  *   Им гейтятся drag, cursorTilt, magnetic (на грубом указателе они ломали бы
- *   UX). Этот флаг НЕ снимается на этапе 2 — природа ввода не меняется от
- *   политики производительности.
+ *   UX). Природа ввода не меняется от политики производительности — этот флаг
+ *   этапом 2 НЕ снимается.
  *
  * Паттерн mounted-гейта — как в useReduceAfterMount: сервер не знает ни
  * reduced-motion, ни типа указателя и всегда рендерит анимационную ветку;
@@ -34,29 +32,19 @@ export function useOpticalCapability(): OpticalCapability {
   const prefersReduce = useReducedMotion();
   const [mounted, setMounted] = useState(false);
   const [pointerFine, setPointerFine] = useState(false);
-  const [desktopMatch, setDesktopMatch] = useState(false);
 
   useEffect(() => {
     setMounted(true);
     const fineMq = window.matchMedia("(pointer: fine)");
-    // desktopMatch — единая точка отката (снимается этапом 2)
-    const deskMq = window.matchMedia("(pointer: fine) and (min-width: 1024px)");
-    const update = () => {
-      setPointerFine(fineMq.matches);
-      setDesktopMatch(deskMq.matches);
-    };
+    const update = () => setPointerFine(fineMq.matches);
     update();
     fineMq.addEventListener("change", update);
-    deskMq.addEventListener("change", update);
-    return () => {
-      fineMq.removeEventListener("change", update);
-      deskMq.removeEventListener("change", update);
-    };
+    return () => fineMq.removeEventListener("change", update);
   }, []);
 
   const reduce = mounted && !!prefersReduce;
   return {
-    full: mounted && !reduce && desktopMatch,
+    full: mounted && !reduce,
     pointerFine: mounted && pointerFine,
   };
 }

@@ -22,9 +22,9 @@ export default function Positioning() {
         entrance="focus"
         focal="scroll"
         sectionTone="offwhite"
-        sizes="12vw"
-        widthClass="w-[12vw]"
-        className="absolute right-[-3vw] top-[66%] z-0 hidden lg:block"
+        sizes="(min-width: 1024px) 12vw, 80px"
+        widthClass="w-20 lg:w-[12vw]"
+        className="absolute right-[-7vw] top-[2%] z-0 lg:right-[-3vw] lg:top-[66%]"
       />
       <Container className="relative z-10">
         <div className="max-w-4xl">

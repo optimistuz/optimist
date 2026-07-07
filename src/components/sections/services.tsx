@@ -8,6 +8,7 @@ import { Eyebrow } from "@/components/ui/eyebrow";
 import { Reveal, RevealLines } from "@/components/ui/reveal";
 import { MotionFocus } from "@/components/ui/motion-focus";
 import { FloatFrame } from "@/components/ui/float-frame";
+import { CenterFocus } from "@/components/ui/center-focus";
 import { services } from "@/content/home";
 import { fadeUp, staggerParent, VIEWPORT } from "@/lib/motion";
 
@@ -77,9 +78,9 @@ export default function Services() {
         entrance="focus"
         focal="scroll"
         sectionTone="offwhite"
-        sizes="12vw"
-        widthClass="w-[12vw]"
-        className="absolute left-[-2vw] top-[58%] z-0 hidden lg:block"
+        sizes="(min-width: 1024px) 12vw, 80px"
+        widthClass="w-20 lg:w-[12vw]"
+        className="absolute right-[-7vw] top-[4%] z-0 lg:right-auto lg:left-[-2vw] lg:top-[58%]"
       />
       <Container className="relative z-10 lg:grid lg:grid-cols-12 lg:gap-8">
         {/* Sticky-интро (desktop): шапка секции остаётся на месте,
@@ -98,8 +99,10 @@ export default function Services() {
         </div>
 
         {/* focus-list/focus-item — фокус-идиома: наведённая строка резкая,
-            соседи отступают (globals.css, только hover-устройства) */}
+            соседи отступают. Десктоп — по :hover; тач — по центру вьюпорта
+            (CenterFocus метит .is-centered), globals.css. */}
         <div className="lg:col-span-7">
+        <CenterFocus selector=".focus-item">
         {reduce ? (
           <ul className="focus-list border-t border-line">
             {services.items.map((s) => (
@@ -123,6 +126,7 @@ export default function Services() {
             ))}
           </motion.ul>
         )}
+        </CenterFocus>
         </div>
       </Container>
     </Section>

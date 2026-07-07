@@ -14,7 +14,7 @@ import { useOpticalCapability } from "@/lib/use-optical-capability";
 import { EASE } from "@/lib/motion";
 
 /**
- * Velocity-резкость: display-заголовок слегка «плывёт» (blur ≤ 2px)
+ * Velocity-резкость: display-заголовок слегка «плывёт» (blur ≤ 3px)
  * при быстром скролле и мгновенно наводится на резкость при остановке —
  * сайт ведёт себя как зрение.
  *
@@ -24,8 +24,10 @@ import { EASE } from "@/lib/motion";
  * через ТОТ ЖЕ MotionValue фильтра (берём максимум двух источников) —
  * второго filter на элементе не появляется, конфликта с velocity нет.
  *
- * Активен только при (pointer: fine) И ширине ≥1024px И выключенном
- * reduced-motion; во всех остальных случаях — прозрачный рендер без эффекта.
+ * Активен на всех устройствах после маунта при выключенном reduced-motion
+ * (единый гейт useOpticalCapability.full — desktopMatch снят этапом 2;
+ * velocity живёт и на таче: шина Lenis считает скорость из нативного скролла).
+ * При reduced-motion — прозрачный рендер без эффекта.
  *
  * Оборачивать ТОЛЬКО заголовки с масочным появлением:
  * не focusIn-элементы (конфликт по filter) и не изображения.
@@ -41,8 +43,8 @@ export function MotionFocus({
   const ref = useRef<HTMLDivElement>(null);
 
   const velocity = useScrollVelocity();
-  // |velocity| ≥ 30 → blur 2px; в покое → 0 (useTransform клампит диапазон)
-  const blur = useTransform(velocity, [-30, 0, 30], [2, 0, 2]);
+  // |velocity| ≥ 30 → blur 3px; в покое → 0 (useTransform клампит диапазон)
+  const blur = useTransform(velocity, [-30, 0, 30], [3, 0, 3]);
   const smooth = useSpring(blur, { stiffness: 250, damping: 40 });
 
   // Якорный пульс: 3px → 0 (бюджет ночи: анимируемый blur ≤ 3px)

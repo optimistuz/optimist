@@ -84,9 +84,9 @@ export default function Expertise() {
         entrance="focus"
         focal="scroll"
         sectionTone="offwhite"
-        sizes="15vw"
-        widthClass="w-[15vw]"
-        className="absolute left-[-4vw] top-2 z-0 hidden lg:block"
+        sizes="(min-width: 1024px) 15vw, 80px"
+        widthClass="w-20 lg:w-[15vw]"
+        className="absolute left-[-7vw] top-[2%] z-0 lg:left-[-4vw] lg:top-2"
       />
       <Container className="relative z-10">
         <div className="grid grid-cols-1 gap-14 lg:grid-cols-2 lg:gap-20">
@@ -108,13 +108,19 @@ export default function Expertise() {
 
           <div className="relative">
             {/* Водяной знак экспертизы — таблица Сивцева («Ш Б / М Н К»):
-                типографический мотив кабинета окулиста, на грани видимости */}
+                типографический мотив кабинета окулиста, на грани видимости.
+                На мобиле — уменьшенный (этап 2): вдвое мельче и выше не
+                уезжает, чтобы не давать горизонтальный скролл на 360. */}
             <div
               aria-hidden
-              className="pointer-events-none absolute -inset-x-4 -top-14 hidden select-none text-center font-serif leading-none text-ink/[0.03] lg:block"
+              className="pointer-events-none absolute -inset-x-4 -top-8 select-none text-center font-serif leading-none text-ink/[0.03] lg:-top-14"
             >
-              <span className="block text-[10rem] tracking-[0.18em]">ШБ</span>
-              <span className="mt-4 block text-[6.5rem] tracking-[0.32em]">МНК</span>
+              <span className="block text-[5rem] tracking-[0.18em] lg:text-[10rem]">
+                ШБ
+              </span>
+              <span className="mt-2 block text-[3.25rem] tracking-[0.32em] lg:mt-4 lg:text-[6.5rem]">
+                МНК
+              </span>
             </div>
 
             <div className="relative grid grid-cols-2 gap-x-8 gap-y-12">

@@ -78,6 +78,25 @@ export const imageReveal: Variants = {
 };
 
 /**
+ * imageReveal ДЛЯ КАРТОЧЕК (не полноэкранных кадров): к scale+opacity добавлен
+ * лёгкий расфокус blur 4→0 — карточка «наводится на резкость», как текст.
+ * Это ЖЕСТ ПОЯВЛЕНИЯ (≤8px по §3), поэтому blur на изображении здесь законен.
+ * НЕ применять к полноэкранным фото (Atmosphere остаётся на imageReveal):
+ * там живой фильтр запрещён — тяжёлый расфокус берётся запеканием/камерой.
+ * Один владелец filter на узел (закон №1): фильтр висит на motion-обёртке
+ * RevealItem — это ОТДЕЛЬНЫЙ узел от FocalPlane (у той свой filter внутри).
+ */
+export const imageRevealBlur: Variants = {
+  hidden: { opacity: 0, scale: 1.06, filter: "blur(4px)" },
+  visible: {
+    opacity: 1,
+    scale: 1,
+    filter: "blur(0px)",
+    transition: { duration: DURATION.slow, ease: EASE },
+  },
+};
+
+/**
  * Hero-фото: ЕДИНСТВЕННОЕ исключение из правила «blur не на изображениях» —
  * одноразовое появление с наведением на резкость (выражение концепции,
  * не скролл-эффект и не цикл). См. CLAUDE.md, «Хореография, волна 2».

@@ -12,11 +12,12 @@ import { useOpticalCapability } from "@/lib/use-optical-capability";
 
 /**
  * Фокальная плоскость страницы: изображение резкое в центре вьюпорта
- * и мягчеет к кромкам (blur 0 → max ≤ 3px) — страница ведёт себя как
+ * и мягчеет к кромкам (blur 0 → max ≤ 5px) — страница ведёт себя как
  * оптика с малой глубиной резкости.
  *
- * Активна только при (pointer: fine) И ширине ≥1024px И выключенном
- * reduced-motion; иначе прозрачный рендер без эффекта.
+ * Активна на всех устройствах после маунта при выключенном reduced-motion
+ * (единый гейт useOpticalCapability.full — desktopMatch снят этапом 2);
+ * иначе прозрачный рендер без эффекта.
  *
  * ВАЖНО: это отдельный слой только вокруг изображения. Не вешать на
  * элементы с hover-скейлом, параллаксом или собственным filter
@@ -25,11 +26,11 @@ import { useOpticalCapability } from "@/lib/use-optical-capability";
 export function FocalPlane({
   children,
   className,
-  max = 3,
+  max = 5,
 }: {
   children: ReactNode;
   className?: string;
-  /** Максимальный blur у кромок вьюпорта, px (бюджет: ≤ 3). */
+  /** Максимальный blur у кромок вьюпорта, px (бюджет: ≤ 5). */
   max?: number;
 }) {
   const { full } = useOpticalCapability();

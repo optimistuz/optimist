@@ -121,7 +121,11 @@ export function FloatFrame({
 
   // Триггер появления: hero ждёт прелоадер, деко — вход во вьюпорт
   const introDone = useIntroDone();
-  const inView = useInView(rootRef, { once: true, margin: "-80px" });
+  // margin ТОЛЬКО по вертикали (top/bottom): entrance ждёт, пока оправа зайдёт
+  // на 80px в кадр сверху/снизу, но НЕ исключает горизонтально вжатые в жёлоб
+  // деко (мобильный паритет, этап 2) — иначе крошечная деко у кромки выпадает
+  // из сжатого вьюпорта и entrance не срабатывает (opacity замирает на 0).
+  const inView = useInView(rootRef, { once: true, margin: "-80px 0px -80px 0px" });
   const started = entranceWaitIntro ? introDone : inView;
 
   /* ---- Скролл-прогрессы ---- */
@@ -137,7 +141,9 @@ export function FloatFrame({
   });
 
   /* ---- Параллакс + дрейф + наклон (один транформ-слой) ---- */
-  const amplitude = (1 - parallaxSpeed) * 240 * (full ? 1 : 0.5);
+  // Мобильный паритет (этап 2): полная амплитуда параллакса на всех
+  // устройствах — desktopMatch снят из full, урезание ×0.5 убрано.
+  const amplitude = (1 - parallaxSpeed) * 240;
   const parallaxY = useTransform(visibility, [0, 1], [amplitude, -amplitude]);
   const drift = useTransform(visibility, [0, 1], [-2, 2]);
 
@@ -246,19 +252,19 @@ export function FloatFrame({
       entranceOpacity.set(1);
       return;
     }
-    if (!full) entranceBlur.set(0); // мобайл: появление без blur
-    else
-      animate(entranceBlur, 0, {
-        duration: DURATION.slow,
-        ease: EASE,
-        delay: 0.25,
-      });
+    // entrance blur 8→0 на всех устройствах (фильтр на самом <img> — законно);
+    // reduce уже отсеян выше, поэтому здесь full всегда истинен.
+    animate(entranceBlur, 0, {
+      duration: DURATION.slow,
+      ease: EASE,
+      delay: 0.25,
+    });
     animate(entranceOpacity, 1, {
       duration: DURATION.slow,
       ease: EASE,
       delay: 0.25,
     });
-  }, [mounted, started, reduce, full, entrance, entranceBlur, entranceOpacity]);
+  }, [mounted, started, reduce, entrance, entranceBlur, entranceOpacity]);
 
   // Фокальная глубина реквизита: резко у центра, ≤2px у кромок
   const focalRaw = useTransform(visibility, (p) =>

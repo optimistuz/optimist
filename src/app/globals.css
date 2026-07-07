@@ -144,7 +144,7 @@ html.lenis body {
 @media (hover: hover) {
   .focus-list:hover .focus-item:not(:hover) {
     opacity: 0.45;
-    filter: blur(1px);
+    filter: blur(2px);
   }
 }
 
@@ -156,7 +156,7 @@ html.lenis body {
 @media (hover: hover) {
   .marquee-group:hover .marquee-track span:not(:hover) {
     opacity: 0.35;
-    filter: blur(1px);
+    filter: blur(2px);
   }
 }
 
@@ -177,8 +177,26 @@ html.lenis body {
 @media (hover: hover) {
   .rail-list:hover .rail-item:not(:hover) {
     opacity: 0.4;
-    filter: blur(1px);
+    filter: blur(2px);
   }
+}
+
+/* Тач-эквивалент фокус-идиомы (этап 2). На грубом указателе нет :hover —
+   резкость наводит СКРОЛЛ: хук use-center-focus (единый шлюз
+   useOpticalCapability, закон №5) вешает .center-focus на контейнер ТОЛЬКО
+   на таче и вне reduce, и метит .is-centered у элемента в центре вьюпорта.
+   Позитивный маркер: до JS, под reduce и на десктопе (там :hover) правила
+   молчат — контент резкий/статичный. Rail сюда не входит: «Шкала наводки»
+   живёт только на десктопе. */
+.center-focus:has(.is-centered) .focus-item:not(.is-centered) {
+  opacity: 0.45;
+  filter: blur(2px);
+}
+/* Лента брендов: пока не в центре вьюпорта — мягкий покой, при проходе
+   центра наводится. Класс переключает вертикальный скролл страницы, не бег
+   ленты, — это отклик на скролл, не вечная анимация фильтра (§3). */
+.marquee-group.center-focus:not(.is-centered) .marquee-track span {
+  filter: blur(2px);
 }
 
 /* ============================================================

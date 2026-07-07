@@ -14,7 +14,7 @@ import { Photo } from "@/components/ui/photo";
 import { FloatFrame } from "@/components/ui/float-frame";
 import { LensLoupe } from "@/components/ui/lens-loupe";
 import { collections } from "@/content/home";
-import { imageReveal } from "@/lib/motion";
+import { imageRevealBlur } from "@/lib/motion";
 import { cn } from "@/lib/cn";
 import { PHOTOS, type PhotoSlot } from "@/content/photos";
 
@@ -48,9 +48,9 @@ export default function Collections() {
         entrance="focus"
         focal="scroll"
         sectionTone="offwhite"
-        sizes="12vw"
-        widthClass="w-[12vw]"
-        className="absolute right-[-2vw] top-[6%] z-0 hidden lg:block"
+        sizes="(min-width: 1024px) 12vw, 80px"
+        widthClass="w-20 lg:w-[12vw]"
+        className="absolute right-[-7vw] top-[5%] z-0 lg:right-[-2vw] lg:top-[6%]"
       />
       <Container className="relative z-10">
         <div className="mb-16 max-w-2xl sm:mb-20">
@@ -71,7 +71,7 @@ export default function Collections() {
           {collections.items.map((c, i) => (
             <RevealItem
               key={c.title}
-              variants={imageReveal}
+              variants={imageRevealBlur}
               className={cn("min-w-0", spans[i])}
             >
               <a href={c.href} className="group block">

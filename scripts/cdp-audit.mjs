@@ -548,21 +548,56 @@ async function main() {
       await scrollTo(0);
     }
 
-    /* ---------- Мобайл 360/390 ---------- */
-    for (const w of [360, 390]) {
+    /* ---------- Мобайл 360/390: деко ВИДИМА (этап 2 — паритет) и НЕ
+       пересекает текст. Раньше проверялось обратное (decoHidden) — после
+       снятия hidden lg:block деко живёт на мобиле уменьшённой. ---------- */
+    for (const w of [360, 390, 430]) {
       await setViewport(w, 800, true, 2);
       await sleep(700);
-      await scrollTo(0);
-      const r = await evaluate(`(() => {
+      // подвести deco-2 в кадр (на мобиле она у верха секции #expertise)
+      const decoY = await evaluate(`(() => {
+        const el = document.querySelector('img[src*="deco-2"]');
+        if (!el) return null;
+        const box = el.closest('.isolate') || el.parentElement;
+        const r = box.getBoundingClientRect();
+        return Math.round(r.top + window.scrollY);
+      })()`);
+      if (decoY != null) { await scrollTo(Math.max(0, decoY - 160)); await sleep(700); }
+      const dq = await api.getQuad('img[src*="deco-2"]');
+      const texts = await evaluate(`(() => {
+        const els = document.querySelectorAll('#expertise h2, #expertise p, #expertise span, #expertise div.border-t');
+        return [...els].filter((e) => e.offsetParent).map((e) => { const r = e.getBoundingClientRect();
+          return { tag: e.tagName, left: r.left, top: r.top, right: r.right, bottom: r.bottom }; });
+      })()`);
+      const decoTextHits = dq ? texts.filter((r) => quadIntersectsRect(dq, r)).length : "quad?";
+      const info = await evaluate(`(() => {
         const doc = document.documentElement;
         const deco = document.querySelector('img[src*="deco-2"]');
+        const r = deco ? deco.getBoundingClientRect() : null;
         return {
           hscroll: doc.scrollWidth - doc.clientWidth,
-          decoHidden: deco ? deco.getBoundingClientRect().width === 0 : 'нет узла',
+          decoVisible: r ? r.width > 0 : false,
+          decoOpacity: deco ? getComputedStyle(deco).opacity : null,
         };
       })()`);
-      report.checks.push({ name: `мобайл ${w}`, ...r });
+      report.checks.push({ name: `мобайл ${w}`, ...info, decoTextHits });
     }
+
+    /* ---------- Мобайл белая точка deco-2 (dsf 1 — пиксели честные:
+       при dsf 2 скриншот 2×, а quad в CSS-px, замер бы сдвинулся) ---------- */
+    await setViewport(390, 800, true, 1);
+    await sleep(700);
+    const mDecoY = await evaluate(`(() => {
+      const el = document.querySelector('img[src*="deco-2"]');
+      if (!el) return null;
+      const box = el.closest('.isolate') || el.parentElement;
+      const r = box.getBoundingClientRect();
+      return Math.round(r.top + window.scrollY);
+    })()`);
+    if (mDecoY != null) { await scrollTo(Math.max(0, mDecoY - 200)); await sleep(700); }
+    report.checks.push({ name: "мобайл deco-2 filter", value: await imgFilter("deco-2") });
+    await api.grainOff();
+    await testPairs(api, report, "deco-2", "mobile-wp@390", 390, 800, 1);
 
     /* ---------- Середина entrance deco-2 (multiply при 0<opacity<1) ------ */
     await setViewport(1440, 900);

@@ -387,9 +387,13 @@ export default function Anatomy() {
   const active = hovered ?? pinned;
 
   // ---- Завершение (8.1) + близость курсора (8.2) ----
-  // Близость курсора — desktop-поведение через единый шлюз способностей
-  // (desktopMatch пока сохранён; снимается этапом 2).
-  const { full } = useOpticalCapability();
+  // Близость курсора — ПРИРОДА ввода (мышь), не perf-гейт: через единый шлюз
+  // берём pointerFine (закон №5). На таче mousemove не вешаем — там курсора
+  // нет, деталь выбирается тапом по чипсам/контуру. Рисование штрихов и
+  // скролл-сборка НЕ гейтятся способностью — они живут на всех устройствах
+  // (только reduce их выключает), поэтому на мобиле чертёж рисуется и
+  // собирается наравне с десктопом (этап 2).
+  const { pointerFine } = useOpticalCapability();
   const [celebrate, setCelebrate] = useState(false); // фаза «штрихи в brand»
   const [celebrating, setCelebrating] = useState(false); // окно stagger-задержки
   const [showDone, setShowDone] = useState(false); // строка-награда
@@ -446,10 +450,10 @@ export default function Anatomy() {
     },
   });
 
-  // Близость курсора (desktop): подсвечивает ближайшую деталь, не выбирает.
+  // Близость курсора (pointer:fine): подсвечивает ближайшую деталь, не выбирает.
   // Активная деталь приоритетнее — тогда близость гасим.
   useEffect(() => {
-    if (!full || active !== null) {
+    if (!pointerFine || active !== null) {
       setNear(null);
       return;
     }
@@ -492,7 +496,7 @@ export default function Anatomy() {
       window.removeEventListener("mousemove", onMove);
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [full, active]);
+  }, [pointerFine, active]);
 
   // ---- Разнесённая сборка: прогресс скролла сквозь чертёж ----------
   // 0 — обёртка чертежа у нижней кромки вьюпорта, 1 — у верхней.
