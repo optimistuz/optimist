@@ -1,12 +1,20 @@
+"use client";
+
 import { Section } from "@/components/ui/section";
 import { Container } from "@/components/ui/container";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import { Reveal } from "@/components/ui/reveal";
+import { ScrollTitre } from "@/components/ui/scroll-titre";
 import { PulseWord } from "@/components/ui/pulse-word";
 import { FloatFrame } from "@/components/ui/float-frame";
+import { useReadLines } from "@/lib/use-read-lines";
 import { positioning } from "@/content/home";
 
 export default function Positioning() {
+  // Две строки манифеста наводятся ПО ОДНОЙ по мере прохода через центр
+  // вьюпорта (этап 3). Body — обычный Reveal (6px blur на мелком тексте лишний).
+  const { registers, read } = useReadLines(2);
+
   return (
     <Section id="about" className="relative">
       {/* Деко-оправа (точка В): матовый щиток в правом поле, на уровне
@@ -31,14 +39,26 @@ export default function Positioning() {
           <Reveal>
             <Eyebrow>{positioning.eyebrow}</Eyebrow>
           </Reveal>
-          <Reveal delay={0.05} className="mt-8">
-            <p className="font-serif text-display-lg font-light leading-[1.12] text-ink">
-              <span className="text-graphite">{positioning.lead} </span>
+          {/* Манифест: строки-титры наводятся из расфокуса по скроллу.
+              Фильтр — на самих строках, не на секции (там деко-FloatFrame). */}
+          <div className="mt-8 space-y-2 font-serif text-display-lg font-light leading-[1.12]">
+            <ScrollTitre
+              register={registers[0]}
+              read={read[0]}
+              className="text-graphite"
+            >
+              {positioning.lead}
+            </ScrollTitre>
+            <ScrollTitre
+              register={registers[1]}
+              read={read[1]}
+              className="text-ink"
+            >
               {positioning.statementBefore}
               <PulseWord>{positioning.statementAccent}</PulseWord>
               {positioning.statementAfter}
-            </p>
-          </Reveal>
+            </ScrollTitre>
+          </div>
           <Reveal delay={0.1} className="mt-12 max-w-2xl">
             <p className="text-base leading-relaxed text-graphite sm:text-lg">
               {positioning.body}

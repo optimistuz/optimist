@@ -2,28 +2,33 @@
 
 import { useEffect, useRef } from "react";
 import { useReducedMotion } from "motion/react";
-import { useScrollVelocity } from "@/components/smooth-scroll";
+import { useScrollVelocity, useTicker } from "@/components/smooth-scroll";
 import { useCenterFocus } from "@/lib/use-center-focus";
 
 /* ------------------------------------------------------------------
-   Живая лента брендов (JS-маркиза на rAF).
+   Живая лента брендов. Петля живёт в ЕДИНОМ тикере (useTicker→addTick,
+   закон движка §3-4) — своего rAF-цикла лента не держит.
    Базовая скорость как у прежней CSS-ленты (один проход списка за 42 с);
    целевая скорость растёт от |velocity| Lenis (кламп ×3 базы) и плавно
-   возвращается (lerp). Наведение — мягкое торможение до нуля тем же
-   lerp. Бесшовность — две копии дорожки, перенос по modulo ширины.
-   ПАУЗА ВНЕ ЭКРАНА (IntersectionObserver) и в скрытой вкладке
-   (visibilitychange): rAF не тикает — правило вечного движения, ночь 2.
-   reduced-motion — лента статична (rAF не запускается).
+   возвращается (lerp). Наведение — мягкое торможение до нуля тем же lerp.
+   |speed| → расфокус трека: разгон мутит (до 2px), торможение наводит
+   на резкость (значение КВАНТУЕТСЯ до 0.25px — иначе filter перерисовывал
+   бы движущийся трек каждый кадр). Бесшовность — две копии дорожки,
+   перенос по modulo ширины. ПАУЗА ВНЕ ЭКРАНА (IntersectionObserver) и в
+   скрытой вкладке (visibilitychange): тик снимается — правило вечного
+   движения, ночь 2. reduced-motion — лента статична (тик не заводится).
    ------------------------------------------------------------------ */
 
 const LOOP_SECONDS = 42; // как в прежней CSS-ленте — базовая скорость
 const VELOCITY_K = 0.6; // вклад скорости скролла в целевую скорость
 const MAX_FACTOR = 3; // кламп: не быстрее ×3 базы
 const LERP = 0.06; // сглаживание к целевой скорости за кадр
+const MAX_BLUR = 2; // потолок расфокуса трека на разгоне (px)
 
 export default function BrandMarquee({ items }: { items: string[] }) {
   const reduce = useReducedMotion();
   const velocity = useScrollVelocity();
+  const ticker = useTicker();
   const groupRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const hoverRef = useRef(false);
@@ -33,18 +38,19 @@ export default function BrandMarquee({ items }: { items: string[] }) {
   useCenterFocus(groupRef);
 
   useEffect(() => {
-    if (reduce) return;
+    if (reduce || !ticker) return;
     const track = trackRef.current;
     const group = groupRef.current;
     if (!track || !group) return;
 
-    let raf = 0;
     let last = 0;
     let offset = 0;
     let half = track.scrollWidth / 2; // ширина одной копии дорожки
     let base = half / LOOP_SECONDS;
     let speed = base;
-    let visible = true;
+    let running = false;
+    let inView = false;
+    let lastBlur = ""; // последняя записанная строка filter (анти-дребезг)
 
     const measure = () => {
       half = track.scrollWidth / 2;
@@ -63,48 +69,59 @@ export default function BrandMarquee({ items }: { items: string[] }) {
       if (half > 0) {
         offset = (offset + speed * dt) % half;
         track.style.transform = `translate3d(${-offset}px,0,0)`;
+        // Скорость сверх базовой → расфокус (motion-blur), 0…MAX_BLUR px.
+        // Квантуем до 0.25px: на устоявшейся скорости строка filter не
+        // меняется и движущийся трек не перерисовывается каждый кадр.
+        const over = (speed - base) / (base * (MAX_FACTOR - 1)); // 0…1
+        const q = Math.round(Math.max(0, Math.min(MAX_BLUR, over * MAX_BLUR)) * 4) / 4;
+        const str = q > 0 ? `blur(${q}px)` : "none";
+        if (str !== lastBlur) {
+          track.style.filter = str;
+          lastBlur = str;
+        }
       }
-      raf = requestAnimationFrame(tick);
     };
 
-    const start = () => {
-      if (!raf && visible && !document.hidden) {
+    const startTick = () => {
+      if (!running && inView && !document.hidden) {
+        running = true;
         last = 0;
-        raf = requestAnimationFrame(tick);
+        ticker.addTick(tick);
       }
     };
-    const stop = () => {
-      if (raf) {
-        cancelAnimationFrame(raf);
-        raf = 0;
+    const stopTick = () => {
+      if (running) {
+        running = false;
+        ticker.removeTick(tick);
+        track.style.filter = "none"; // на паузе лента резкая
+        lastBlur = "none";
       }
     };
 
     const io = new IntersectionObserver(
       ([entry]) => {
-        visible = entry.isIntersecting;
-        if (visible) start();
-        else stop();
+        inView = entry.isIntersecting;
+        if (inView) startTick();
+        else stopTick();
       },
       { threshold: 0 }
     );
     io.observe(group);
 
     const onVisibility = () => {
-      if (document.hidden) stop();
-      else start();
+      if (document.hidden) stopTick();
+      else startTick();
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("resize", measure);
 
-    start();
     return () => {
-      stop();
+      stopTick();
       io.disconnect();
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("resize", measure);
     };
-  }, [reduce, velocity]);
+  }, [reduce, velocity, ticker]);
 
   return (
     <div

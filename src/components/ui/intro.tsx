@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -15,10 +16,19 @@ import { EASE } from "@/lib/motion";
 
 const IntroContext = createContext(false);
 
-/** true, когда интро завершено (или его не было) — hero можно играть. */
+/**
+ * true, когда hero можно играть. ЭСТАФЕТА (этап 3): освобождается не в конце
+ * растворения оверлея, а в МОМЕНТ его начала — знак «op» уходит в blur+opacity
+ * СИНХРОННО с волной наводки hero, без микропаузы между ними. При пропуске
+ * интро (reduced-motion / внутренний переход) — true с первого кадра.
+ */
 export function useIntroDone() {
   return useContext(IntroContext);
 }
+
+// Тайминг хвоста растворения (совпадает у оверлея, знака и эстафеты hero).
+const DISSOLVE_DELAY = 1.4;
+const DISSOLVE_DUR = 0.4;
 
 // useLayoutEffect нельзя вызывать при SSR — на сервере подменяем на useEffect
 const useIsomorphicLayoutEffect =
@@ -82,6 +92,10 @@ export function IntroProvider({ children }: { children: ReactNode }) {
   // оверлей не рендерится даже на сервере
   const isHome = usePathname() === "/";
   const [phase, setPhase] = useState<Phase>("pending");
+  // Эстафета: hero освобождается на СТАРТЕ растворения (раньше, чем оверлей
+  // домонтируется). При пропуске интро released даёт phase === "done".
+  const [releasedEarly, setReleasedEarly] = useState(false);
+  const released = releasedEarly || phase === "done";
 
   useIsomorphicLayoutEffect(() => {
     setPhase(isHome ? decideIntro() : "done");
@@ -101,10 +115,11 @@ export function IntroProvider({ children }: { children: ReactNode }) {
   }, [phase]);
 
   return (
-    <IntroContext.Provider value={phase === "done"}>
+    <IntroContext.Provider value={released}>
       {isHome && phase !== "done" && (
         <IntroOverlay
           playing={phase === "playing"}
+          onRelease={() => setReleasedEarly(true)}
           onDone={() => setPhase("done")}
         />
       )}
@@ -145,18 +160,35 @@ function Pupil({ cx }: { cx: number }) {
 
 function IntroOverlay({
   playing,
+  onRelease,
   onDone,
 }: {
   playing: boolean;
+  onRelease: () => void;
   onDone: () => void;
 }) {
+  // Эстафета: как только оверлей НАЧАЛ растворяться (opacity сошла с 1) —
+  // освобождаем hero (onUpdate ловит первый кадр падения, once через ref).
+  // onAnimationStart для этого не годится: он срабатывает в НАЧАЛЕ delay, а
+  // не в момент, когда opacity реально поехала.
+  const releasedRef = useRef(false);
   return (
     <motion.div
       aria-hidden="true"
       onClick={onDone}
       initial={{ opacity: 1 }}
       animate={playing ? { opacity: 0 } : undefined}
-      transition={{ delay: 1.4, duration: 0.4, ease: EASE }}
+      transition={{ delay: DISSOLVE_DELAY, duration: DISSOLVE_DUR, ease: EASE }}
+      onUpdate={(latest) => {
+        if (
+          !releasedRef.current &&
+          typeof latest.opacity === "number" &&
+          latest.opacity < 0.999
+        ) {
+          releasedRef.current = true;
+          onRelease();
+        }
+      }}
       onAnimationComplete={onDone}
       className={cn(
         "fixed inset-0 z-[60] grid cursor-pointer place-items-center bg-offwhite",
@@ -166,11 +198,16 @@ function IntroOverlay({
       )}
     >
       {playing && (
-        // Знак «op» — мотив логотипа (обводка), не его замена
-        <svg
+        // Знак «op» — мотив логотипа (обводка), не его замена. Хвост
+        // растворения: сам ЗНАК уходит в blur 0→8 (не оверлей целиком) —
+        // синхронно с волной наводки hero, что стартовала на onRelease.
+        <motion.svg
           viewBox="0 0 260 150"
           fill="none"
           className="h-auto w-64 sm:w-80"
+          initial={{ filter: "blur(0px)" }}
+          animate={{ filter: "blur(8px)" }}
+          transition={{ delay: DISSOLVE_DELAY, duration: DISSOLVE_DUR, ease: EASE }}
         >
           {/* Глаз «o»: моргает группа целиком — зрачок сжимается с веком */}
           <motion.g
@@ -222,7 +259,7 @@ function IntroOverlay({
             animate={{ pathLength: 1 }}
             transition={{ delay: 0.75, duration: 0.3, ease: EASE }}
           />
-        </svg>
+        </motion.svg>
       )}
     </motion.div>
   );

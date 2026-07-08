@@ -92,9 +92,10 @@ export default function Hero() {
   const introDone = useIntroDone();
 
   // ОДИН мастер-прогресс волны фокуса (0→1) — кормит и текст, и портрет.
-  // ~3,2 с (решение владельца): медленнее прежних 2 с, чертёж успевает
-  // «прочитаться», кульминация не смазана. Прелоадер перетекает в волну
-  // (малый delay), без второй паузы.
+  // ~3,4 с (решение владельца): медленнее прежних 2 с, чертёж успевает
+  // «прочитаться», кульминация не смазана. ЭСТАФЕТА (этап 3): introDone
+  // освобождается в момент СТАРТА растворения знака «op» — волна подхватывает
+  // БЕЗ задержки, знак уходит в blur синхронно с наводкой hero (нет микропаузы).
   const p = useMotionValue(0);
   useEffect(() => {
     if (reduce) {
@@ -109,7 +110,6 @@ export default function Hero() {
     const controls = animate(p, 1, {
       duration: 3.4,
       ease: "linear",
-      delay: 0.1,
     });
     return () => controls.stop();
   }, [reduce, introDone, p]);
@@ -152,6 +152,7 @@ export default function Hero() {
           progress={p}
           scene={scene}
           exit={scene ? scrollYProgress : undefined}
+          reduce={reduce}
         />
       </div>
 
@@ -243,6 +244,7 @@ export default function Hero() {
             className="mx-auto w-[86vw] max-w-[440px]"
             progress={p}
             scene={false}
+            reduce={reduce}
           />
         </div>
       </Container>

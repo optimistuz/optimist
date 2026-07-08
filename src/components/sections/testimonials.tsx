@@ -12,6 +12,8 @@ import { testimonials } from "@/content/home";
 import { EASE } from "@/lib/motion";
 
 const SWIPE_THRESHOLD = 50;
+const RING_R = 11; // радиус «фокусировочного кольца» счётчика
+const RING_C = 2 * Math.PI * RING_R;
 
 function Arrow({ direction }: { direction: "left" | "right" }) {
   return (
@@ -85,9 +87,45 @@ export default function Testimonials() {
         <Reveal className="max-w-4xl">
           {/* Счётчик и стрелки */}
           <div className="mb-10 flex items-center justify-between border-t border-line pt-6">
-            <span className="text-sm tabular-nums text-graphite">
-              {pad(index + 1)} — {pad(count)}
-            </span>
+            <div className="flex items-center gap-3">
+              {/* «Фокусировочное кольцо»: дуга растёт с индексом
+                  (stroke-dashoffset) — счётчик как шкала наводки объектива */}
+              <svg
+                width="26"
+                height="26"
+                viewBox="0 0 26 26"
+                aria-hidden
+                className="-rotate-90"
+              >
+                <circle
+                  cx="13"
+                  cy="13"
+                  r={RING_R}
+                  fill="none"
+                  strokeWidth="1.5"
+                  className="stroke-line"
+                />
+                <motion.circle
+                  cx="13"
+                  cy="13"
+                  r={RING_R}
+                  fill="none"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  className="stroke-brand"
+                  // initial={false}: рисуем сразу на нужном offset (без анимации
+                  // «из undefined» на маунте — гигиена консоли Motion), а смену
+                  // индекса анимируем.
+                  initial={false}
+                  style={{ strokeDasharray: RING_C }}
+                  animate={{ strokeDashoffset: RING_C * (1 - (index + 1) / count) }}
+                  transition={{ duration: reduce ? 0 : 0.6, ease: EASE }}
+                />
+              </svg>
+              <span className="text-sm tabular-nums text-graphite">
+                {pad(index + 1)} — {pad(count)}
+              </span>
+            </div>
             <div className="flex items-center gap-3">
               <button
                 type="button"
@@ -117,9 +155,11 @@ export default function Testimonials() {
               <AnimatePresence mode="wait" initial={false}>
                 <motion.div
                   key={index}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -12 }}
+                  // Рэк-фокус: уходящая цитата растворяется в blur 4px,
+                  // приходящая наводится из blur 4→0 (mode="wait" — по очереди)
+                  initial={{ opacity: 0, filter: "blur(4px)" }}
+                  animate={{ opacity: 1, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, filter: "blur(4px)" }}
                   transition={{ duration: 0.5, ease: EASE }}
                   drag={coarsePointer ? "x" : false}
                   dragConstraints={{ left: 0, right: 0 }}

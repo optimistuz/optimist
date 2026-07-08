@@ -199,6 +199,45 @@ html.lenis body {
   filter: blur(2px);
 }
 
+/* Скролл-титры (этап 3, «Один дубль»): строка манифеста лежит в лёгком
+   расфокусе и наводится на резкость, проходя центр вьюпорта (жест появления
+   ≤8px по §3). ОСНОВНОЙ путь — CSS scroll-driven (Chrome 115+, целевой парк
+   A15/A54), off-main-thread; фолбэк — Motion useScroll (scroll-titre.tsx).
+   Класс висит на самой строке, НЕ на секции (там деко-FloatFrame). */
+.scroll-titre {
+  opacity: 0.4;
+  filter: blur(6px);
+}
+@supports (animation-timeline: view()) {
+  .scroll-titre {
+    animation: titre-focus linear both;
+    animation-timeline: view();
+    animation-range: entry 0% cover 40%;
+  }
+}
+@keyframes titre-focus {
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+/* Прочитанная строка (useReadLines, IO once) фиксируется резкой и не
+   возвращается в расфокус при скролле назад. */
+.scroll-titre.line-read {
+  animation: none;
+  opacity: 1;
+  filter: none;
+}
+/* Reduce: строка сразу резкая (scroll-driven анимация игнорирует
+   animation-duration, поэтому глобальный сброс её не гасит — нужно явно). */
+@media (prefers-reduced-motion: reduce) {
+  .scroll-titre {
+    animation: none;
+    opacity: 1;
+    filter: none;
+  }
+}
+
 /* ============================================================
    СТЕКЛО (glassmorphism) — премиальная матовая поверхность
    Рецепт по референсам 2026: тинт + backdrop-blur(16–18px)+saturate

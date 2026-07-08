@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import Image from "next/image";
 import {
   motion,
@@ -11,6 +10,7 @@ import {
   type MotionValue,
 } from "motion/react";
 import { GLASSES } from "@/components/ui/glasses-paths";
+import { useGaze } from "@/lib/use-gaze";
 
 /**
  * Hero «Наведение резкости» — портрет-превращение (план hero-concept-focus-portrait).
@@ -89,6 +89,7 @@ export function FocusPortrait({
   progress,
   scene = false,
   exit,
+  reduce = false,
 }: {
   className?: string;
   /** мастер-прогресс волны фокуса (0→1), общий с текстом hero */
@@ -97,19 +98,39 @@ export function FocusPortrait({
   scene?: boolean;
   /** scrollYProgress секции hero для «сняла очки» (рэк-фокус выхода), только desktop */
   exit?: MotionValue<number>;
+  /** prefers-reduced-motion: гасит «жизнь после вау» (наклон/микро-фокус) */
+  reduce?: boolean;
 }) {
   const p = progress;
   const zero = useMotionValue(0);
   const exitSrc = exit ?? zero;
+
+  // «Жизнь после вау»: hero не умирает после интро. Единый шлюз useGaze даёт
+  // вектор взгляда — на десктопе мышь, на Android гиро (гиро-параллакс слоёв),
+  // на таче последний тап. Под reduce гасим в 0 (статика).
+  const gaze = useGaze();
+  const gx = useTransform(gaze.x, (v) => (reduce ? 0 : v));
+  const gy = useTransform(gaze.y, (v) => (reduce ? 0 : v));
 
   // Расфокус сцены: держится «близоруким» до 0.45, затем наводка в резкость.
   const introBlur = useTransform(p, [0.45, 0.9], [6, 0]);
   // «Сняла очки» по скроллу: мягкий рэк-фокус ≤4px (старт чуть погодя — быстрый
   // скроллер не ловит «смаз»), глубина (масштаб) и параллакс.
   const exitBlur = useTransform(exitSrc, [0.12, 0.6], [0, 4]);
+  // Микро-рэк-фокус «жизнь после вау»: у центра взгляда лицо резкое, по мере
+  // ухода взгляда — хайр расфокуса (≤1px), медленной пружиной → фокус «дышит»
+  // между глазами и оправой, hero не застывает. Живёт в общем photoBlur (один
+  // владелец filter), поэтому применяется ТОЛЬКО где сцена/выход блюрят (desktop);
+  // на мобиле портрет остаётся резким (без живого фильтра, §3).
+  const microBlur = useSpring(
+    useTransform([gx, gy] as MotionValue<number>[], ([x, y]: number[]) =>
+      Math.min(1, Math.hypot(x, y) * 0.7)
+    ),
+    { stiffness: 40, damping: 22 }
+  );
   const photoBlur = useTransform(
-    [introBlur, exitBlur] as MotionValue<number>[],
-    ([a, b]: number[]) => a + b
+    [introBlur, exitBlur, microBlur] as MotionValue<number>[],
+    ([a, b, c]: number[]) => a + b + c
   );
   const photoFilter = useMotionTemplate`blur(${photoBlur}px)`;
   const exitScale = useTransform(exitSrc, [0, 0.6], [1, 0.94]);
@@ -135,20 +156,16 @@ export function FocusPortrait({
   const glareOpacity = useTransform(p, [0.84, 0.9, 0.99], [0, 0.45, 0]);
   const glareX = useTransform(p, [0.84, 0.99], ["-150%", "350%"]);
 
-  // Жизнь после вау: тонкий наклон портрета за курсором (desktop).
-  const tiltX = useSpring(0, { stiffness: 60, damping: 18 });
-  const tiltY = useSpring(0, { stiffness: 60, damping: 18 });
-  useEffect(() => {
-    if (!scene) return;
-    const onMove = (e: PointerEvent) => {
-      const nx = (e.clientX / window.innerWidth) * 2 - 1;
-      const ny = (e.clientY / window.innerHeight) * 2 - 1;
-      tiltY.set(nx * 3);
-      tiltX.set(-ny * 2);
-    };
-    window.addEventListener("pointermove", onMove);
-    return () => window.removeEventListener("pointermove", onMove);
-  }, [scene, tiltX, tiltY]);
+  // Тонкий наклон-параллакс портрета за взглядом (мышь / Android-гиро), медленной
+  // пружиной. rotateY ведёт горизонт взгляда, rotateX — вертикаль (инверсия).
+  const tiltY = useSpring(
+    useTransform(gx, (v) => v * 3),
+    { stiffness: 60, damping: 18 }
+  );
+  const tiltX = useSpring(
+    useTransform(gy, (v) => v * -2),
+    { stiffness: 60, damping: 18 }
+  );
 
   // Блюр вешаем только когда есть что блюрить (desktop-сцена или скролл-выход);
   // на мобиле/reduced портрет резкий, оправа проявляется по opacity.

@@ -5,6 +5,7 @@ import {
   animate,
   motion,
   useInView,
+  useMotionTemplate,
   useMotionValue,
   useReducedMotion,
   useTransform,
@@ -21,8 +22,10 @@ import { EASE } from "@/lib/motion";
 /**
  * Счётчик без ререндеров: motion-значение пишется напрямую в DOM
  * через <motion.span>{display}</motion.span> — React не участвует в кадрах.
- * По достижении значения — финальный микро-pop (scale 1→1.04→1, spring,
- * один раз). Reduced-motion: число сразу, без пробега и без pop.
+ * Цифра НАВОДИТСЯ из расфокуса (blur 4→0) синхронно с пробегом: тот же
+ * MotionValue счётчика питает и число, и filter (один владелец filter — сам
+ * span). По достижении значения — финальный микро-pop (scale 1→1.04→1,
+ * spring, один раз). Reduced-motion: число сразу, резко, без пробега и pop.
  */
 function Counter({ value, suffix }: { value: number; suffix: string }) {
   const ref = useRef<HTMLSpanElement>(null);
@@ -33,6 +36,10 @@ function Counter({ value, suffix }: { value: number; suffix: string }) {
     raw,
     (v) => Math.round(v).toLocaleString("ru-RU") + suffix
   );
+  // Расфокус ведёт тот же счётчик: raw 0→value ⇒ blur 4→0 (не по времени —
+  // по пробегу числа). Под reduce raw сразу = value ⇒ blur 0 (резко).
+  const blur = useTransform(raw, [0, value], [4, 0]);
+  const filter = useMotionTemplate`blur(${blur}px)`;
 
   useEffect(() => {
     if (!inView) return;
@@ -60,7 +67,7 @@ function Counter({ value, suffix }: { value: number; suffix: string }) {
     <motion.span
       ref={ref}
       className="inline-block"
-      style={{ transformOrigin: "left bottom" }}
+      style={{ transformOrigin: "left bottom", filter }}
     >
       {display}
     </motion.span>
@@ -107,19 +114,23 @@ export default function Expertise() {
           </div>
 
           <div className="relative">
-            {/* Водяной знак экспертизы — таблица Сивцева («Ш Б / М Н К»):
+            {/* Водяной знак экспертизы — таблица Сивцева («Ш Б / М Н К / Ы М Б Ш»):
                 типографический мотив кабинета окулиста, на грани видимости.
-                На мобиле — уменьшенный (этап 2): вдвое мельче и выше не
-                уезжает, чтобы не давать горизонтальный скролл на 360. */}
+                Нарастающий книзу СТАТИЧНЫЙ расфокус в 3 ступени (как на 404):
+                нижняя строка «труднее навести на резкость». На мобиле —
+                уменьшенный (этап 2), чтобы не давать hscroll на 360. */}
             <div
               aria-hidden
               className="pointer-events-none absolute -inset-x-4 -top-8 select-none text-center font-serif leading-none text-ink/[0.03] lg:-top-14"
             >
-              <span className="block text-[5rem] tracking-[0.18em] lg:text-[10rem]">
+              <span className="block text-[5rem] tracking-[0.18em] blur-[0.6px] lg:text-[10rem]">
                 ШБ
               </span>
-              <span className="mt-2 block text-[3.25rem] tracking-[0.32em] lg:mt-4 lg:text-[6.5rem]">
+              <span className="mt-2 block text-[3.25rem] tracking-[0.32em] blur-[1.6px] lg:mt-4 lg:text-[6.5rem]">
                 МНК
+              </span>
+              <span className="mt-2 block text-[2rem] tracking-[0.4em] blur-[3px] lg:mt-3 lg:text-[4rem]">
+                ЫМБШ
               </span>
             </div>
 
