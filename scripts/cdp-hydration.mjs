@@ -10,7 +10,9 @@ import http from "node:http";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 
-const URL_BASE = process.argv[2] ?? "http://127.0.0.1:3001";
+// Порт 3000 — как у cdp-audit.mjs / shot-site.mjs. Разъезд дефолтов давал
+// ЛОЖНЫЙ ПАСС: скрипт грузил пустой 3001 и рапортовал «0 предупреждений».
+const URL_BASE = process.argv[2] ?? "http://127.0.0.1:3000";
 const CHROME =
   process.argv[3] ?? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const DEBUG_PORT = 9778;
@@ -165,6 +167,7 @@ const HYDRATION_RE =
 async function run(label, flags) {
   const chrome = launchChrome(flags);
   const messages = [];
+  let loaded = false;
   try {
     let targets = null;
     for (let i = 0; i < 50 && !targets; i++) {
@@ -195,9 +198,23 @@ async function run(label, flags) {
 
     await cdp.call("Page.navigate", { url: URL_BASE + "/" });
     await sleep(9000); // dev-компиляция + гидрация
+
+    // Санити: страница ДОЛЖНА быть живой. Иначе «0 предупреждений» — ложный
+    // пасс (пустая вкладка / не тот порт / упавший dev), а не чистая гидрация.
+    const { result } = await cdp.call("Runtime.evaluate", {
+      expression: "!!document.querySelector('main') && document.body.innerText.length > 200",
+      returnByValue: true,
+    });
+    loaded = result?.value === true;
     cdp.close();
   } finally {
     chrome.kill();
+  }
+  if (!loaded) {
+    throw new Error(
+      `[${label}] страница не загрузилась по ${URL_BASE} — результат гидрации недостоверен. ` +
+        `Проверь, что 'npm run dev' слушает этот адрес.`
+    );
   }
   return { label, count: messages.length, messages };
 }
