@@ -248,8 +248,13 @@ gyro, cursorTilt, shadow, exitDefocus) включает этап 17.
 3. **Что где живёт и когда умирает:**
    - `optimist-fit` (localStorage) — выбор пользователя + квизовая
      само-декларация: {face(квиз), use, style, silhouette, frameId?,
-     frameName?, color?, price?, source, ts}; каждая запись диспатчит
-     `optimist-fit-updated`;
+     frameName?, color?, price?, recommendation?(квиз), code?(квиз),
+     source, ts}; каждая запись диспатчит `optimist-fit-updated`.
+     ⚠️ `code` здесь — код РЕКОМЕНДАЦИИ квиза, не одноимённый камерный код
+     формы лица (тот живёт в `fit-session`). Граница держится на ВХОДЕ:
+     `writeFit` санитизирует записи `source:"camera"` по белому списку
+     (silhouette/frameId/frameName/color/price), `readFit` — ещё и вычищает
+     с диска «отравленные» записи прежних сборок;
    - `fit-session.ts` (in-memory) — ВСЁ камерное: face/code/secondary/
      PD/мм/widthStep; умирает с вкладкой;
    - `optimist-shelf` (localStorage, ≤7 позиций, TTL 30 дней) —

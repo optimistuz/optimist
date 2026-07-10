@@ -11,7 +11,9 @@ import {
   salons,
   ctaBlock,
   faceShapeLabels,
+  faceFit,
 } from "@/content/home";
+import { readFit, onFitUpdated, type FitData } from "@/lib/fit-storage";
 import { EASE } from "@/lib/motion";
 import { cn } from "@/lib/cn";
 
@@ -35,18 +37,9 @@ const EMPTY: FormValues = {
   date: "",
 };
 
-// Связка с квизом «Подбор»: форма читает свежий результат из localStorage.
-type FitData = {
-  face: string;
-  use: string;
-  style: string;
-  recommendation: string;
-  code?: string;
-  ts: number;
-};
-const FIT_KEY = "optimist-fit";
+// Связка с подбором: форма читает свежий результат из localStorage И слушает
+// его появление (то же окно + другие вкладки) — см. lib/fit-storage.
 const FIT_SERVICE = "Подбор оправы";
-const FIT_MAX_AGE = 30 * 24 * 60 * 60 * 1000; // свежесть подбора ≤ 30 дней
 
 // Подбор из квиза знает 5 форм; подбор по лицу добавляет ромб — общий
 // словарь faceShapeLabels закрывает все 6 (квиз остаётся первым источником).
@@ -54,6 +47,40 @@ const faceLabelOf = (v: string) =>
   fitQuiz.steps[0].options.find((o) => o.value === v)?.label ??
   faceShapeLabels[v] ??
   v;
+
+/**
+ * Строка подбора для заявки. Источник называется ЧЕСТНО: раньше камерный путь
+ * уходил в Telegram как «Подбор из квиза».
+ *
+ * Камера отдаёт только силуэт, который клиент выбрал руками, — форма лица и
+ * прочая классификация в заявку не попадают никогда (§«Граница утечки»).
+ */
+function fitDetail(fit: FitData): string | null {
+  if (fit.source === "camera") {
+    const s = fit.silhouette ? faceFit.frames[fit.silhouette] : null;
+    return s ? `силуэт «${s}»` : null;
+  }
+  const parts = [
+    fit.face ? faceLabelOf(fit.face).toLowerCase() : null,
+    fit.recommendation || null,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/**
+ * Заголовок + деталь. Без детали строки НЕТ вовсе: «Подбор по камере» без
+ * силуэта не сообщает менеджеру ничего, а выглядит как обрезанные данные.
+ * Сейчас недостижимо (чипс ставится только после fitDetail-гейта), но шаблон
+ * заявки не должен зависеть от гейта на другом конце файла.
+ * Пробелы после «по» и «из» — неразрывные (типографская гигиена — закон и для
+ * Telegram-шаблонов).
+ */
+function fitLine(fit: FitData): string | null {
+  const detail = fitDetail(fit);
+  if (!detail) return null;
+  const head = fit.source === "camera" ? "Подбор по камере" : "Подбор из квиза";
+  return `${head}: ${detail}`;
+}
 
 /** Автоформат узбекского номера: +998 XX XXX-XX-XX, префикс закреплён. */
 function formatUzPhone(raw: string): string {
@@ -269,7 +296,8 @@ export default function BookingForm() {
   const [attempted, setAttempted] = useState(false);
   // min для даты — завтрашний день, вычисляется на клиенте
   const [minDate, setMinDate] = useState("");
-  // Подбор из квиза (читается после маунта — гидрация не меняется)
+  // Подбор из квиза ИЛИ камеры (читается после маунта — гидрация не меняется,
+  // затем обновляется по событию: подбор часто завершается позже маунта формы)
   const [fit, setFit] = useState<FitData | null>(null);
   const [fitApplied, setFitApplied] = useState(false);
   // Поля, с которых ушёл фокус (для галочки валидности) + удобное время
@@ -291,19 +319,22 @@ export default function BookingForm() {
   }, []);
 
   // Mounted-гейт: localStorage читаем только на клиенте, после маунта.
+  // И СЛУШАЕМ дальше: подбор часто заканчивается уже после того, как форма
+  // смонтирована (человек прошёл квиз/камеру и проскроллил вниз). Без подписки
+  // результат доходил бы только после перезагрузки — воронка теряла клиентов.
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(FIT_KEY);
-      if (!raw) return;
-      const data = JSON.parse(raw) as FitData;
-      if (!data || typeof data.ts !== "number") return;
-      if (Date.now() - data.ts > FIT_MAX_AGE) return; // несвежий — игнорируем
+    const apply = () => {
+      const data = readFit();
+      // Подбор без показуемой детали (напр. легаси-запись камеры без силуэта,
+      // из которой вычищена классификация) — это НЕ подбор: не предвыбираем
+      // услугу и не шлём в заявку пустой заголовок.
+      if (!data || !fitDetail(data)) return;
       setFit(data);
       setFitApplied(true);
       setValues((v) => ({ ...v, service: FIT_SERVICE }));
-    } catch {
-      /* приватный режим / битый JSON — молча */
-    }
+    };
+    apply();
+    return onFitUpdated(apply);
   }, []);
 
   // Услуга «Подбор оправы» появляется в селекте, только когда подбор учтён.
@@ -350,15 +381,15 @@ export default function BookingForm() {
     setAttempted(true);
     if (Object.keys(validate(values)).length > 0) return;
 
-    // Доп. строки заявки — только для записи на приём: подбор из квиза, салон, время.
-    // Для обратного звонка нужны лишь имя и телефон.
+    // Подбор идёт в заявку при ЛЮБОМ режиме: на обратном звонке он нужен
+    // менеджеру ровно так же, как на записи, — иначе контекст теряется.
+    // Салон и время осмысленны только для записи на приём.
     const extras: string[] = [];
+    if (fitApplied && fit) {
+      const line = fitLine(fit);
+      if (line) extras.push(line);
+    }
     if (isAppointment) {
-      if (fitApplied && fit) {
-        extras.push(
-          `Подбор из квиза: ${faceLabelOf(fit.face).toLowerCase()} · ${fit.recommendation}`
-        );
-      }
       if (values.salon) extras.push(`Салон: ${values.salon}`);
       if (timePref) extras.push(`Удобное время: ${timePref}`);
     }
@@ -369,7 +400,7 @@ export default function BookingForm() {
       phone: values.phone,
       service: isAppointment ? values.service || undefined : undefined,
       date: isAppointment && values.date ? formatDateRu(values.date) : undefined,
-      extras: isAppointment ? extras : undefined,
+      extras: extras.length > 0 ? extras : undefined,
       company: honeypot,
     };
 
@@ -400,10 +431,10 @@ export default function BookingForm() {
     if (timePref) summaryRows.push({ label: c.labels.time, value: timePref });
     if (values.salon)
       summaryRows.push({ label: c.labels.salon, value: values.salon });
-    if (fitApplied && fit)
+    if (fitApplied && fit && fitDetail(fit))
       summaryRows.push({
         label: c.labels.fit,
-        value: `${faceLabelOf(fit.face).toLowerCase()} · ${fit.recommendation}`,
+        value: fitDetail(fit) as string,
       });
 
     const addToCalendar = () =>
@@ -552,18 +583,18 @@ export default function BookingForm() {
         })}
       </div>
 
-      {/* Тихий чипс подбора из квиза — над полями; крестик отменяет предзаполнение.
-          Только в режиме записи на приём (для обратного звонка подбор не нужен). */}
-      {isAppointment && fitApplied && fit && (
+      {/* Тихий чипс подбора — над полями; крестик отменяет предзаполнение.
+          Виден в ОБОИХ режимах: подбор уходит в заявку и на обратном звонке. */}
+      {fitApplied && fit && fitDetail(fit) && (
         <div className="mb-6 flex items-start justify-between gap-4 rounded-[4px] border border-paper/15 bg-paper/5 px-4 py-3">
           <p className="text-sm leading-relaxed text-paper/70">
             <span className="text-brand">✓</span> Учтём ваш подбор:{" "}
-            {faceLabelOf(fit.face).toLowerCase()} · {fit.recommendation}
+            {fitDetail(fit)}
           </p>
           <button
             type="button"
             onClick={cancelFit}
-            aria-label="Не учитывать подбор из квиза"
+            aria-label="Не учитывать подбор"
             className="shrink-0 rounded-sm text-paper/50 transition-colors duration-200 hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
           >
             ✕

@@ -44,9 +44,16 @@ export async function POST(request: Request) {
   }
   lastRequestByIp.set(ip, now);
 
+  // extras несут подбор (честный источник) — они осмысленны в ОБОИХ режимах:
+  // менеджеру, который перезванивает, контекст подбора нужен ровно так же.
   const lines =
     data.type === "callback"
-      ? ["📞 ПЕРЕЗВОНИТЕ МНЕ", `Имя: ${data.name}`, `Телефон: ${data.phone}`]
+      ? [
+          "📞 ПЕРЕЗВОНИТЕ МНЕ",
+          `Имя: ${data.name}`,
+          `Телефон: ${data.phone}`,
+          ...(data.extras ?? []),
+        ].filter(Boolean)
       : [
           "📅 ЗАПИСЬ НА ПРИЁМ",
           `Имя: ${data.name}`,

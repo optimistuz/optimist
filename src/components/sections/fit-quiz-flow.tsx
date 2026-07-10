@@ -7,6 +7,7 @@ import { FaceIcon } from "@/components/ui/face-icon";
 import { cn } from "@/lib/cn";
 import { EASE } from "@/lib/motion";
 import { recommend } from "@/lib/fit-recommend";
+import { writeFit } from "@/lib/fit-storage";
 import { fitQuiz, fitResult, site } from "@/content/home";
 
 /* ------------------------------------------------------------------
@@ -180,25 +181,19 @@ export default function QuizFlow({
     ? recommend(answers.face, answers.use, answers.character)
     : null;
 
-  // Результат → localStorage: форма записи подхватывает свежий подбор.
+  // Результат → localStorage. writeFit диспатчит `optimist-fit-updated`, так что
+  // форма записи подхватывает подбор в ТОЙ ЖЕ сессии, без перезагрузки.
+  // `face` здесь легитимен: это само-декларация — человек сам назвал форму лица.
   useEffect(() => {
     if (!complete || !rec) return;
-    try {
-      window.localStorage.setItem(
-        "optimist-fit",
-        JSON.stringify({
-          face: answers.face,
-          use: answers.use,
-          style: answers.character,
-          recommendation: rec.directions.map((d) => d.name).join(" + "),
-          code: rec.code,
-          source: "quiz",
-          ts: Date.now(),
-        })
-      );
-    } catch {
-      /* приватный режим / переполнена квота — молча */
-    }
+    writeFit({
+      face: answers.face,
+      use: answers.use,
+      style: answers.character,
+      recommendation: rec.directions.map((d) => d.name).join(" + "),
+      code: rec.code,
+      source: "quiz",
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [complete, rec?.code]);
 

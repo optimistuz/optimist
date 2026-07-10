@@ -16,11 +16,8 @@ import {
   type Quality,
   type Shape,
 } from "@/lib/face-shape";
-import {
-  overlayForFace,
-  recommendByFace,
-  type FrameKind,
-} from "@/lib/fit-recommend";
+import { overlayForFace, type FrameKind } from "@/lib/fit-recommend";
+import { writeFit } from "@/lib/fit-storage";
 import { cn } from "@/lib/cn";
 import { faceFit } from "@/content/home";
 
@@ -462,9 +459,13 @@ export function FaceCamera({
     setSubphase("analyzing");
   };
 
+  // Силуэт, который клиент РЕАЛЬНО покрутил на лице, — единственное, что камера
+  // отдаёт наружу (§«Граница утечки»). Это его выбор, не биометрия. Форма записи
+  // просыпается сразу: writeFit диспатчит `optimist-fit-updated`.
   const chooseFrame = (k: FrameKind) => {
     frameTouchedRef.current = true;
     setFrameKind(k);
+    writeFit({ silhouette: k, source: "camera" });
   };
 
   // Эффективная форма: ручная правда важнее автоопределения.
@@ -476,30 +477,12 @@ export function FaceCamera({
     if (!frameTouchedRef.current) setFrameKind(overlayForFace(s));
   };
 
-  // Связка с формой записи (Блок 6.2): кладём свежий подбор в localStorage.
-  // Форма читает его на маунте (тот же контракт, что у квиза) — поля
-  // совместимы; добавлены secondary и source:"camera".
-  useEffect(() => {
-    if (subphase !== "result" || !decision || !effectiveFace) return;
-    const rec = recommendByFace(effectiveFace);
-    try {
-      window.localStorage.setItem(
-        "optimist-fit",
-        JSON.stringify({
-          face: effectiveFace,
-          secondary: decision.secondary,
-          use: "",
-          style: "",
-          recommendation: rec.directions.map((d) => d.name).join(" + "),
-          code: rec.code,
-          source: "camera",
-          ts: Date.now(),
-        })
-      );
-    } catch {
-      /* приватный режим / квота — молча */
-    }
-  }, [subphase, decision, effectiveFace]);
+  // ⚠️ Камерная классификация (face, secondary, производная от неё рекомендация)
+  // в localStorage НЕ пишется и в заявку НЕ уходит — граница утечки §«Примерка
+  // и камера». Она живёт только в памяти вкладки и умирает вместе с ней.
+  // Наружу идёт единственное: силуэт, выбранный руками (см. chooseFrame).
+  // Силуэт по умолчанию выведен из формы лица (overlayForFace) и потому
+  // раскрыл бы классификацию косвенно — его не записываем.
 
   // ---- Экраны отказа / неподдерживается → выход в квиз всегда есть ----
   if (phase === "denied" || phase === "unsupported") {
