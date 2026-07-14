@@ -35,6 +35,34 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 - `bake-blur.mjs` — запекание расфокуса/светов в статику (**вручную**, не в build):
   `node scripts/bake-blur.mjs blur public/photos/interior.jpg`.
 
+**Конвейер фото-ассетов** (этап 10; dev-сервер не нужен):
+
+- `ingest-frames.mjs` — приёмка сдачи фотографа (дерево `docs/photo-brief.md` §10)
+  → `public/frames/<артикул>/`. Гейты: белая точка (весь фон, не рамка;
+  gain ≤ `MaxGain` из `normalize-white.ps1`), комплектность, миллиметры, вес,
+  объявленный источник кадра. Фотограф сдаёт **десять** packshot-кадров,
+  на сайт уходят **семь**: `front-top`, `side-ortho`, `front-ortho` — архив
+  и чертёж размеров, в веб не публикуются. Публикация лесенкой:
+  `<кадр>.jpg` 1200 px (карточка, LCP) + `<кадр>@2x.jpg` 2400 px (лупа).
+  Забракованный артикул следов в `public/` не оставляет.
+  `node scripts/ingest-frames.mjs <дерево-сдачи>`
+  `node scripts/ingest-frames.mjs --verify <файл|папка>` — приговор по белой
+  точке без записи (**режим съёмочного дня**).
+  `node scripts/ingest-frames.mjs --verify <папка> --expect` — **самопроверка
+  гейта**: имя кадра-ловушки объявляет ожидаемый приговор (`ok-` / `brak-` /
+  `nomeasure-`), расхождение роняет прогон. Проверяется ПРИБОР, а не кадры;
+  гонять после любой правки `scripts/lib/white-point.mjs`.
+- `build-seq.mjs` — rack-focus серия → секвенции PDP (mobile 24 / desktop 30,
+  оба набора **выбираются** из одной серии, промежуточный фокус не
+  интерполируется). Потолки читаются из `docs/perf-budgets.md`; при превышении
+  скрипт **падает** и не оставляет полусобранную секвенцию.
+  `node scripts/build-seq.mjs <rack-dir> --sku <id>`
+- `make-pilot-delivery.mjs` — синтетическая «сдача» из существующих кадров,
+  чтобы прогонять конвейер без фотографа. Кладёт в дерево **намеренный брак**:
+  гейт доказывается падением, а не успехом. Выход пилота — в `.gitignore`.
+- `normalize-white.ps1` — инструмент **съёмочного дня** (PowerShell):
+  `.\scripts\normalize-white.ps1 -In кадр.jpg -Out проверка.jpg -VerifyOnly`.
+
 **Мобильная приёмка** (обязательна для тяжёлых эффектов): Chrome DevTools →
 эмуляция **390×844 + CPU throttling 4×**, прогон каждого эффекта **5+ минут**
 (троттлинг разогретого телефона). Эталон аудитории — Galaxy A15/A54.
