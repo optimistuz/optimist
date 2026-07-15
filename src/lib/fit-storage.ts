@@ -17,7 +17,17 @@ export const FIT_EVENT = "optimist-fit-updated";
 /** Свежесть подбора — 30 дней (та же величина, что у полки). */
 export const FIT_MAX_AGE = 30 * 24 * 60 * 60 * 1000;
 
-export type FitSource = "quiz" | "camera";
+/**
+ * Откуда взялся подбор. `catalog` — человек выбрал КОНКРЕТНУЮ оправу в витрине
+ * (карточка, PDP, полка): это не «подбор» в смысле квиза, а прямой выбор
+ * товара, и заявка обязана его донести — менеджеру есть что снять с полки.
+ *
+ * ⚠️ Без этого источника запись `{frameId, frameName, color}` была бы
+ * ВЫБРОШЕНА на входе (`readFit` не знал такого source), и строка «Оправа: …»
+ * в заявке не появилась бы никогда — мёртвый код в честном обличье
+ * (поймал `revizor-vitriny`).
+ */
+export type FitSource = "quiz" | "camera" | "catalog";
 
 export type FitData = {
   /** Форма лица — ТОЛЬКО квизовая само-декларация. Камера сюда не пишет. */
@@ -54,26 +64,55 @@ export function writeFit(data: Omit<FitData, "ts">): void {
 }
 
 /**
- * Санитайзер камерной записи. Прежние сборки клали в localStorage классификацию
- * лица (face, secondary, code, recommendation) — она могла пролежать там 30 дней.
- * Для source==="camera" пропускаем ТОЛЬКО белый список границы утечки; всё
- * остальное отбрасываем, даже если оно уже записано на диск.
+ * Белый список полей — ОБЩИЙ для всех источников: это и есть граница утечки.
+ * Всё перечисленное здесь человек выбрал сам (силуэт, оправа, цвет, цена).
+ */
+const SHARED_FIELDS = [
+  "silhouette",
+  "frameId",
+  "frameName",
+  "color",
+  "price",
+  "source",
+  "ts",
+] as const;
+
+/**
+ * Что дозволено ДОПОЛНИТЕЛЬНО только квизу. Это само-декларация: человек сам
+ * назвал форму лица и сам прочитал рекомендацию. Камера и каталог сюда писать
+ * не могут ФИЗИЧЕСКИ — их записи режутся до `SHARED_FIELDS`.
+ */
+const QUIZ_ONLY_FIELDS = ["face", "use", "style", "recommendation", "code"] as const;
+
+const allowedFields = (source: FitSource): readonly string[] =>
+  source === "quiz" ? [...SHARED_FIELDS, ...QUIZ_ONLY_FIELDS] : SHARED_FIELDS;
+
+/**
+ * Санитайзер записи. Прежние сборки клали в localStorage классификацию лица
+ * (face, secondary, code, recommendation) — она могла пролежать там 30 дней.
+ *
+ * ⚠️ Защита идёт ПО ПОЛЯМ, а не по источнику. Раньше проверялся только
+ * `source === "camera"`, а для всех прочих запись пропускалась как есть —
+ * и это была мина под этапы 12–13 (нашёл `strazh`): рядом живёт
+ * `getFitSession()` с face/PD/мм, и один спред
+ * `writeFit({ ...getFitSession(), frameId, source: "catalog" })` уложил бы
+ * биометрию на диск, пройдя и вход, и выход, и проверку «отравления».
+ * Теперь неизвестное поле выбрасывается ВСЕГДА, каким бы ни был источник:
+ * белый список не нужно помнить — его нельзя обойти.
  */
 function sanitize(data: FitData): FitData {
-  if (data.source !== "camera") return data;
-  const { silhouette, frameId, frameName, color, price, source, ts } = data;
-  return { silhouette, frameId, frameName, color, price, source, ts };
+  const out: Record<string, unknown> = {};
+  for (const key of allowedFields(data.source)) {
+    const value = (data as unknown as Record<string, unknown>)[key];
+    if (value !== undefined) out[key] = value;
+  }
+  return out as unknown as FitData;
 }
 
-/** Есть ли в камерной записи поля, которых там быть не должно. */
+/** Есть ли в записи поля, которых при её источнике быть не должно. */
 function isPoisoned(data: FitData): boolean {
-  return (
-    data.source === "camera" &&
-    (data.face !== undefined ||
-      data.recommendation !== undefined ||
-      data.code !== undefined ||
-      "secondary" in data)
-  );
+  const allowed = new Set<string>(allowedFields(data.source));
+  return Object.keys(data).some((key) => !allowed.has(key));
 }
 
 /**
@@ -88,7 +127,8 @@ export function readFit(): FitData | null {
     const data = JSON.parse(raw) as FitData;
     if (!data || typeof data.ts !== "number") return null;
     if (Date.now() - data.ts > FIT_MAX_AGE) return null;
-    if (data.source !== "quiz" && data.source !== "camera") return null;
+    if (data.source !== "quiz" && data.source !== "camera" && data.source !== "catalog")
+      return null;
     const clean = sanitize(data);
     if (isPoisoned(data)) {
       // Перезаписываем очищенной записью, сохраняя исходный ts (не «освежаем»

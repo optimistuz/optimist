@@ -1,9 +1,27 @@
+"use client";
+
 import type { ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import { cn } from "@/lib/cn";
 
 /**
  * Ссылка с тонким подчёркиванием, вырастающим слева направо при наведении.
  * active — постоянное подчёркивание (текущая секция) + aria-current.
+ *
+ * ⚠️ ЯКОРЬ ЗНАЕТ, ГДЕ СТОИТ (CLAUDE.md, «Витрина» п. 7: хром route-aware).
+ * Секции `#about`, `#salons`, `#hero` живут только на «/». Вне её голый
+ * якорь означает «/privacy#salons» — адрес без такого якоря. Левый клик
+ * спасал `smooth-scroll` (цели нет → уводил на главную), но средний клик,
+ * Ctrl+клик, «копировать адрес ссылки» и краулер получали битую ссылку
+ * (поймал `fizik`: шапка закон исполнила, подвал — нет).
+ *
+ * Починка живёт ЗДЕСЬ, а не в подвале: `AnimatedLink` — единственная общая
+ * точка обоих, и его JS уже едет на «/» (им пользуется шапка). Отдельный
+ * клиентский компонент для подвала стоил бы бандла на ровном месте, а его
+ * на «/» остался 1 КБ (docs/perf-budgets.md).
+ *
+ * Абсолютные адреса (соцсети, tel:, mailto:) и уже готовые «/#…» из шапки
+ * не трогаются — условие смотрит ровно на ведущую решётку.
  */
 export function AnimatedLink({
   href,
@@ -18,9 +36,12 @@ export function AnimatedLink({
   onClick?: () => void;
   active?: boolean;
 }) {
+  const pathname = usePathname();
+  const resolved = href.startsWith("#") && pathname !== "/" ? `/${href}` : href;
+
   return (
     <a
-      href={href}
+      href={resolved}
       onClick={onClick}
       aria-current={active ? "true" : undefined}
       className={cn(

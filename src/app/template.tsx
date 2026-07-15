@@ -27,6 +27,11 @@ export default function Template({ children }: { children: ReactNode }) {
 
   return (
     <motion.div
+      /* Страховка без JS: Motion сериализует `initial` в SSR, и без
+         гидратации страница осталась бы невидимой (opacity 0). Класс
+         доводит обёртку до конечного состояния через 5 с — юридический
+         документ обязан читаться и с мёртвым JavaScript (см. globals.css). */
+      className="route-enter-failsafe"
       initial={{ opacity: 0, filter: "blur(8px)", y: 14, scale: 0.992 }}
       animate={{ opacity: 1, filter: "blur(0px)", y: 0, scale: 1 }}
       transition={{ duration: reduce ? 0 : 0.6, ease: EASE }}

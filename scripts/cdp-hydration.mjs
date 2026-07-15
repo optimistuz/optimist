@@ -1,20 +1,42 @@
 /**
  * Ловит hydration-warnings в dev-режиме (они есть только в next dev).
  * Запускает headless Chrome, слушает console (Runtime.consoleAPICalled)
- * и Log, грузит страницу в обычном режиме и в reduced-motion, печатает
- * все сообщения про гидрацию. Без зависимостей.
+ * и Log, грузит КАЖДЫЙ маршрут в обычном режиме, в reduced-motion и на
+ * мобильной ширине. Без зависимостей.
  *
- * Использование: node scripts/cdp-hydration.mjs [urlBase] [chromePath]
+ * Использование:
+ *   node scripts/cdp-hydration.mjs [urlBase] [chromePath] [--routes=/,/privacy]
+ *
+ * ⚠️ Маршруты — АРГУМЕНТ, а не константа. Прибор, который знает только «/»,
+ * молча выдаёт «чисто» по всему сайту: новый маршрут он просто не открывает.
+ * Каждый этап витрины ОБЯЗАН дописать сюда свои маршруты — иначе гидрация
+ * каталога и PDP не проверена никем.
+ *
+ * Находка = падение (exit 1). Гейт, который только печатает, гейтом не
+ * является: его вывод однажды прочитают глазами и пропустят.
  */
 import http from "node:http";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 
+const args = process.argv.slice(2);
+const flagArgs = args.filter((a) => a.startsWith("--"));
+const positional = args.filter((a) => !a.startsWith("--"));
+
 // Порт 3000 — как у cdp-audit.mjs / shot-site.mjs. Разъезд дефолтов давал
 // ЛОЖНЫЙ ПАСС: скрипт грузил пустой 3001 и рапортовал «0 предупреждений».
-const URL_BASE = process.argv[2] ?? "http://127.0.0.1:3000";
+const URL_BASE = positional[0] ?? "http://127.0.0.1:3000";
 const CHROME =
-  process.argv[3] ?? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+  positional[1] ?? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+
+const routesFlag = flagArgs.find((a) => a.startsWith("--routes="));
+const ROUTES = routesFlag
+  ? routesFlag
+      .slice("--routes=".length)
+      .split(",")
+      .map((r) => r.trim())
+      .filter(Boolean)
+  : ["/", "/privacy"];
 const DEBUG_PORT = 9778;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -164,10 +186,11 @@ function launchChrome(flags = []) {
 const HYDRATION_RE =
   /hydrat|did not match|server (?:rendered|html)|Text content does not|tree hydrated|Expected server HTML|Warning: Prop/i;
 
-async function run(label, flags) {
+async function run(label, flags, route) {
   const chrome = launchChrome(flags);
   const messages = [];
   let loaded = false;
+  let status = null;
   try {
     let targets = null;
     for (let i = 0; i < 50 && !targets; i++) {
@@ -179,6 +202,15 @@ async function run(label, flags) {
     await cdp.call("Runtime.enable");
     await cdp.call("Log.enable");
     await cdp.call("Page.enable");
+    await cdp.call("Network.enable");
+
+    // Код ответа ДОКУМЕНТА. Без него прибор врал: страница 404 у Next — это
+    // тоже живой <main> с текстом по тому же адресу, и опечатка в маршруте
+    // возвращалась «чистой гидрацией» непроверенной страницы.
+    let docStatus = null;
+    cdp.on("Network.responseReceived", (p) => {
+      if (p.type === "Document" && docStatus === null) docStatus = p.response?.status ?? null;
+    });
 
     const record = (text, level) => {
       if (text && HYDRATION_RE.test(text)) messages.push({ level, text: text.slice(0, 300) });
@@ -196,37 +228,62 @@ async function run(label, flags) {
       record(p.exceptionDetails?.exception?.description || p.exceptionDetails?.text, "exception")
     );
 
-    await cdp.call("Page.navigate", { url: URL_BASE + "/" });
+    await cdp.call("Page.navigate", { url: URL_BASE + route });
     await sleep(9000); // dev-компиляция + гидрация
 
     // Санити: страница ДОЛЖНА быть живой. Иначе «0 предупреждений» — ложный
     // пасс (пустая вкладка / не тот порт / упавший dev), а не чистая гидрация.
+    // Сверяем и АДРЕС: молчаливый редирект (404 → not-found) отдал бы чистую
+    // чужую страницу за проверенный маршрут.
     const { result } = await cdp.call("Runtime.evaluate", {
-      expression: "!!document.querySelector('main') && document.body.innerText.length > 200",
+      expression: `(() => {
+        const alive = !!document.querySelector('main') && document.body.innerText.length > 200;
+        const here = location.pathname.replace(/\\/$/, "") === ${JSON.stringify(route)}.replace(/\\/$/, "");
+        return alive && here;
+      })()`,
       returnByValue: true,
     });
     loaded = result?.value === true;
+    status = docStatus;
     cdp.close();
   } finally {
     chrome.kill();
   }
-  if (!loaded) {
+  if (!loaded || status !== 200) {
     throw new Error(
-      `[${label}] страница не загрузилась по ${URL_BASE} — результат гидрации недостоверен. ` +
-        `Проверь, что 'npm run dev' слушает этот адрес.`
+      `[${label}] маршрут ${route} недостоверен: HTTP ${status ?? "—"}, ` +
+        `живая разметка: ${loaded ? "да" : "нет"}. ` +
+        `Либо 'npm run dev' не слушает ${URL_BASE}, либо такого маршрута нет ` +
+        `(страница 404 — тоже живой <main>, и без кода ответа она сходила за «чистую»).`
     );
   }
-  return { label, count: messages.length, messages };
+  return { route, label, status, count: messages.length, messages };
 }
 
 async function main() {
   const out = [];
-  out.push(await run("normal@1440", []));
-  await sleep(800);
-  out.push(await run("reduced-motion@1440", ["--force-prefers-reduced-motion"]));
-  await sleep(800);
-  out.push(await run("mobile@390", ["--window-size=390,800"]));
+  for (const route of ROUTES) {
+    out.push(await run("normal@1440", [], route));
+    await sleep(800);
+    out.push(await run("reduced-motion@1440", ["--force-prefers-reduced-motion"], route));
+    await sleep(800);
+    out.push(await run("mobile@390", ["--window-size=390,800"], route));
+    await sleep(800);
+  }
   console.log(JSON.stringify(out, null, 2));
+
+  const dirty = out.filter((r) => r.count > 0);
+  if (dirty.length) {
+    console.error(
+      `\nГИДРАЦИЯ ГРЯЗНАЯ: ${dirty.length} прогон(ов) из ${out.length} — ` +
+        dirty.map((r) => `${r.route} [${r.label}]: ${r.count}`).join("; ")
+    );
+    process.exit(1);
+  }
+  console.log(
+    `\nГИДРАЦИЯ ЧИСТА: ${out.length} прогонов — маршруты ${ROUTES.join(", ")} ` +
+      `× (обычный / reduced-motion / мобильный).`
+  );
 }
 
 main().catch((e) => {

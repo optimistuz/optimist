@@ -100,6 +100,17 @@ export default function Footer() {
 
         <div className="mt-16 flex flex-col gap-2 border-t border-line pt-8 text-xs text-graphite sm:flex-row sm:items-center sm:justify-between">
           <p>© {year} «Оптимист». Все права защищены.</p>
+          {/* Политика, до которой нельзя дойти, не опубликована (этап 11, шаг 5).
+              Обычный <a>, а НЕ next/link: до этого шага Link не было в бандле
+              «/» ни разу, и один его импорт затащил бы роутер в критический
+              путь — замерено +9 КБ при остатке бюджета 1 КБ. Юридическую
+              страницу открывают раз в жизни; полная загрузка тут уместна. */}
+          <a
+            href="/privacy"
+            className="text-graphite transition-colors hover:text-ink"
+          >
+            Политика конфиденциальности
+          </a>
           <p>Ташкент, Узбекистан</p>
           {/* Lenis перехватывает якорь и плавно везёт к началу */}
           <AnimatedLink href="#hero" className="text-xs">

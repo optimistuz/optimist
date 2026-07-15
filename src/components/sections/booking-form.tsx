@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { useReduceAfterMount } from "@/lib/use-reduce-after-mount";
@@ -10,6 +10,7 @@ import {
   fitQuiz,
   salons,
   ctaBlock,
+  consentLine,
   faceShapeLabels,
   faceFit,
 } from "@/content/home";
@@ -56,6 +57,11 @@ const faceLabelOf = (v: string) =>
  * прочая классификация в заявку не попадают никогда (§«Граница утечки»).
  */
 function fitDetail(fit: FitData): string | null {
+  // Выбор в каталоге — не «подбор»: человек ничего не проходил, он ткнул
+  // в конкретную оправу. Деталь для него несёт frameLine() отдельной строкой,
+  // поэтому здесь честный null — иначе заявка назвала бы выбор товара
+  // «Подбором из квиза» (ветка ниже) и соврала бы менеджеру об источнике.
+  if (fit.source === "catalog") return null;
   if (fit.source === "camera") {
     const s = fit.silhouette ? faceFit.frames[fit.silhouette] : null;
     return s ? `силуэт «${s}»` : null;
@@ -80,6 +86,27 @@ function fitLine(fit: FitData): string | null {
   if (!detail) return null;
   const head = fit.source === "camera" ? "Подбор по камере" : "Подбор из квиза";
   return `${head}: ${detail}`;
+}
+
+/**
+ * Конкретная оправа — ОТДЕЛЬНОЙ строкой заявки (этап 11, приёмка: «менеджеру
+ * есть что отложить»). Смысл в том, чтобы человек в салоне мог физически снять
+ * оправу с полки к приходу клиента, а не гадать по силуэту.
+ *
+ * Поля — из белого списка границы утечки: это ВЫБОР пользователя (артикул,
+ * название, цвет). Камерной классификации здесь нет и быть не может —
+ * её не пускает `writeFit` (см. `fit-storage.ts`) и не хранит `fit-session.ts`.
+ *
+ * Заполняет их витрина (этапы 12–13: карточка, полка). Пока каталог пуст,
+ * строки не будет вовсе — пустой «Артикул: —» хуже её отсутствия.
+ */
+function frameLine(fit: FitData): string | null {
+  const parts = [
+    fit.frameName ? `«${fit.frameName}»` : null,
+    fit.frameId ? `артикул\u00A0${fit.frameId}` : null,
+    fit.color ? `цвет: ${fit.color}` : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? `Оправа: ${parts.join(" · ")}` : null;
 }
 
 /** Автоформат узбекского номера: +998 XX XXX-XX-XX, префикс закреплён. */
@@ -114,6 +141,10 @@ type BookingPayload = {
   date?: string;
   extras?: string[];
   company: string; // honeypot
+  /** Сколько форма прожила на экране до отправки — признак бота, не гейт.
+   *  Порог живёт на сервере и стоит НИЖЕ человеческой способности: клиент
+   *  с автозаполнением не должен потерять заявку (см. api/booking/route.ts). */
+  elapsedMs?: number;
 };
 
 // Реальная отправка: заявка уходит на серверный обработчик /api/booking,
@@ -307,6 +338,12 @@ export default function BookingForm() {
   const [mode, setMode] = useState<Mode>("appointment");
   const isAppointment = mode === "appointment";
 
+  // Когда форма появилась на экране. Отправка «быстрее, чем физически можно
+  // заполнить» — признак бота (порог и его обоснование — на сервере).
+  // Ref, а не state: перерисовывать форму из-за таймера незачем.
+  const mountedAtRef = useRef<number>(0);
+  if (mountedAtRef.current === 0) mountedAtRef.current = Date.now();
+
   useEffect(() => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -328,7 +365,13 @@ export default function BookingForm() {
       // Подбор без показуемой детали (напр. легаси-запись камеры без силуэта,
       // из которой вычищена классификация) — это НЕ подбор: не предвыбираем
       // услугу и не шлём в заявку пустой заголовок.
-      if (!data || !fitDetail(data)) return;
+      //
+      // ⚠️ Выбранная в каталоге ОПРАВА — тоже подбор, даже если детали квиза
+      // нет. Раньше гейт спрашивал только `fitDetail`, который про `frameId`
+      // не знает, и запись «{frameId, frameName, color}» из витрины
+      // отбрасывалась целиком: строка «Оправа: …» не доехала бы до салона
+      // ни в одном сценарии (поймал `revizor-vitriny`).
+      if (!data || (!fitDetail(data) && !frameLine(data))) return;
       setFit(data);
       setFitApplied(true);
       setValues((v) => ({ ...v, service: FIT_SERVICE }));
@@ -388,6 +431,10 @@ export default function BookingForm() {
     if (fitApplied && fit) {
       const line = fitLine(fit);
       if (line) extras.push(line);
+      // Конкретная оправа — отдельной строкой: менеджеру есть что физически
+      // снять с полки к приходу клиента.
+      const frame = frameLine(fit);
+      if (frame) extras.push(frame);
     }
     if (isAppointment) {
       if (values.salon) extras.push(`Салон: ${values.salon}`);
@@ -402,6 +449,7 @@ export default function BookingForm() {
       date: isAppointment && values.date ? formatDateRu(values.date) : undefined,
       extras: extras.length > 0 ? extras : undefined,
       company: honeypot,
+      elapsedMs: Date.now() - mountedAtRef.current,
     };
 
     setStatus("submitting");
@@ -820,6 +868,20 @@ export default function BookingForm() {
           </Button>
         </Magnetic>
       </div>
+
+      {/* Согласие — строкой, БЕЗ галочки: галочка, которую никто не читает,
+          это ритуал, а не согласие. Говорим прямо, что означает нажатие.
+          Обычный <a>, а не next/link — см. footer.tsx: Link стоит «/» 9 КБ. */}
+      <p className="mt-5 max-w-md text-xs leading-relaxed text-paper/45">
+        {consentLine.before}
+        <a
+          href={consentLine.href}
+          className="border-b border-paper/30 pb-px text-paper/70 transition-colors hover:border-paper hover:text-paper"
+        >
+          {consentLine.link}
+        </a>
+        {consentLine.after}
+      </p>
     </form>
   );
 }

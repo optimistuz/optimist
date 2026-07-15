@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import {
   AnimatePresence,
   motion,
@@ -32,6 +33,8 @@ import { cn } from "@/lib/cn";
  * намеренно вне списка (см. content/home.ts).
  */
 export default function SectionRail() {
+  const pathname = usePathname();
+  const atHome = pathname === "/";
   const [activeId, setActiveId] = useState<string>(sections[0].id);
   const [invert, setInvert] = useState(false);
   const [open, setOpen] = useState(false);
@@ -57,7 +60,10 @@ export default function SectionRail() {
     );
     els.forEach((el) => io.observe(el));
     return () => io.disconnect();
-  }, []);
+    // [pathname], а не []: секции есть только на «/». Иначе при первом заходе
+    // не на главную наблюдатель не создастся никогда, и после SPA-перехода
+    // на «/» шкала замрёт на первой точке (взводится с next/link, этап 12а).
+  }, [pathname]);
 
   // Инверсия над тёмными секциями: список тёмных узлов кэшируем один раз,
   // а на скролле лишь проверяем, накрывает ли тёмная секция центр вьюпорта
@@ -66,8 +72,14 @@ export default function SectionRail() {
     darkEls.current = Array.from(
       document.querySelectorAll<HTMLElement>("[data-rail-invert]")
     );
-  }, []);
+    // Тот же случай: список тёмных секций пересобирается при смене маршрута,
+    // иначе инверсия шкалы над тёмными главами умрёт молча.
+  }, [pathname]);
   useMotionValueEvent(scrollY, "change", () => {
+    // Вне «/» рельс рисует null, но подписка на скролл живёт (хук нельзя
+    // вызвать условно). Считать «тёмные» секции чужой страницы незачем —
+    // выходим сразу: работа без рендера это просто работа впустую.
+    if (!atHome) return;
     const center = window.innerHeight / 2;
     const over = darkEls.current.some((el) => {
       const r = el.getBoundingClientRect();
@@ -100,6 +112,12 @@ export default function SectionRail() {
       document.removeEventListener("keydown", onKey);
     };
   }, [open, lenis]);
+
+  // «Шкала наводки» — карта ГЛАВНОЙ: её точки суть секции «/». На других
+  // маршрутах она показывала бы карту чужой страницы (CLAUDE.md, «Витрина»
+  // п. 7: SectionRail только на «/»). Ранний возврат стоит ПОСЛЕ всех хуков —
+  // порядок хуков обязан быть неизменным между рендерами.
+  if (!atHome) return null;
 
   return (
     <>

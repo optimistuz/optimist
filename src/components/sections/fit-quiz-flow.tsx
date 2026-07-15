@@ -300,6 +300,13 @@ export default function QuizFlow({
                     {fitResult.sunLine}
                   </p>
                 )}
+                {/* «Ориентир, не рецепт» — закон на всех поверхностях посадки.
+                    У камеры оговорка была, у квиза не было ни одной: человек
+                    получал направление оправы без единого слова о враче
+                    (нашёл `strazh`). */}
+                <p className="mt-6 max-w-xl text-sm leading-relaxed text-graphite/80">
+                  {fitQuiz.guide}
+                </p>
                 <p className="mt-8 text-sm tracking-wide text-graphite">
                   {fitQuiz.bothSalons}
                 </p>
