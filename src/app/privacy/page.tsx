@@ -37,7 +37,11 @@ export default function PrivacyPage() {
           {privacy.eyebrow}
         </p>
 
-        <h1 className="mt-6 whitespace-pre-line font-display text-4xl leading-[1.1] text-ink sm:text-5xl">
+        {/* Базовый text-3xl, а не text-4xl: «конфиденциальности» (18 букв) при
+            36px шире вьюпорта 390 и срезалось у края (overflow-x:clip не даёт
+            скролл, но букву режет — поймал `priyomshchik`). 30px влезает и на
+            360; sm:text-5xl оставляет планшет/десктоп без изменений. */}
+        <h1 className="mt-6 whitespace-pre-line font-display text-3xl leading-[1.1] text-ink sm:text-5xl">
           {privacy.heading}
         </h1>
 

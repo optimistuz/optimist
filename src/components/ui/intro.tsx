@@ -98,6 +98,14 @@ export function IntroProvider({ children }: { children: ReactNode }) {
   const released = releasedEarly || phase === "done";
 
   useIsomorphicLayoutEffect(() => {
+    // Первый маунт ВНЕ «/» (внешний заход на PDP/политику/коллекцию): документ
+    // первично загружен не на главной, значит визит «/» будет переходом ПОСРЕДИ
+    // SPA-сессии — прелоадер там играть нельзя (CLAUDE.md, «Прелоадер op»).
+    // Кэшируем «done» на уровне модуля, пока решение ещё не принято: иначе на «/»
+    // вызовется decideIntro(), увидит исходную внешнюю навигацию как «заход
+    // извне» и заведёт интро посреди сессии. Гард `=== null` не трогает решение,
+    // уже принятое главной (переход «/» → /privacy → «/»).
+    if (!isHome && decision === null) decision = "done";
     setPhase(isHome ? decideIntro() : "done");
   }, [isHome]);
 
