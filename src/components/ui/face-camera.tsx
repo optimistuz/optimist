@@ -136,10 +136,18 @@ export function FaceCamera({
   const reduceRef = useRef(reduce);
   reduceRef.current = reduce;
   // Последний разбор кадра — для оверлея-чертежа (Блок 4) и скана (Блок 5).
-  const latestRef = useRef<{ lm: Pt[] | null; w: number; h: number }>({
+  const latestRef = useRef<{
+    lm: Pt[] | null;
+    w: number;
+    h: number;
+    // Матрица позы: рантайм — Float32Array (.data), тип MediaPipe — number[];
+    // храним оба, как их принимает poseFromMatrix (pose.ts).
+    matrix: Float32Array | number[] | null;
+  }>({
     lm: null,
     w: 0,
     h: 0,
+    matrix: null,
   });
 
   // ---- Остановка потока (приватность): треки + отвязка + чистка кадра ----
@@ -170,7 +178,7 @@ export function FaceCamera({
     stableCountRef.current = 0;
     cleanCountRef.current = 0;
     prevKeyRef.current = null;
-    latestRef.current = { lm: null, w: 0, h: 0 };
+    latestRef.current = { lm: null, w: 0, h: 0, matrix: null };
   }, []);
 
   // ---- Старт камеры ----
@@ -194,7 +202,8 @@ export function FaceCamera({
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: "user",
-          width: { ideal: small ? 480 : 640 },
+          width: { ideal: small ? 640 : 1280 },
+          height: { ideal: small ? 480 : 720 },
           frameRate: { ideal: 30, max: 30 },
         },
         audio: false,
@@ -271,10 +280,7 @@ export function FaceCamera({
         : null;
     if (io && wrapRef.current) io.observe(wrapRef.current);
 
-    const tick = () => {
-      if (!active) return;
-      raf = requestAnimationFrame(tick);
-
+    const detect = (nowMs: number) => {
       const v = videoRef.current;
       const detector = detectorRef.current;
       // Пауза вне вьюпорта / в скрытой вкладке (правило вечного движения).
@@ -285,7 +291,6 @@ export function FaceCamera({
       if (!w || !h) return;
 
       // Троттлинг детекции до ~30 fps (rAF может быть 60–120 Гц).
-      const nowMs = performance.now();
       if (nowMs - lastDetect < DETECT_INTERVAL) return;
       lastDetect = nowMs;
 
@@ -294,14 +299,18 @@ export function FaceCamera({
       lastTs = ts;
 
       let lm: Pt[] | null = null;
+      let matrix: number[] | null = null;
       try {
         const res = detector.detectForVideo(v, ts);
         lm = res?.faceLandmarks?.[0] ?? null;
+        // Матрица позы — читается (нулевая цена) в latestRef.matrix, фундамент
+        // pose.ts; в этапе 7 ещё НЕ потребляется для коррекции (plan §5.2).
+        matrix = res?.facialTransformationMatrixes?.[0]?.data ?? null;
       } catch {
         return; // временный сбой кадра — пропускаем
       }
 
-      latestRef.current = { lm, w, h };
+      latestRef.current = { lm, w, h, matrix };
 
       const q = frameQuality(lm, w, h);
 
@@ -385,11 +394,53 @@ export function FaceCamera({
       // чертёж следит за лицом), но окно усреднения не копит.
     };
 
-    raf = requestAnimationFrame(tick);
+    // Планировщик: requestVideoFrameCallback — детекция на частоте кадров
+    // камеры (та частота, что и нужна). Фолбэк для старых Firefox без rvfc —
+    // прежний rAF (детекция троттлится в detect по DETECT_INTERVAL). Исключение
+    // из «один тикер» уже санкционировано (CLAUDE.md §3-4: rvfc камеры).
+    let rvfcHandle = 0;
+    // Один и тот же <video> на всю жизнь эффекта: и регистрация rvfc, и cancel
+    // в cleanup идут по нему. НЕ перечитываем videoRef.current в cleanup —
+    // react-hooks/exhaustive-deps верно предупреждает, что ref мог смениться;
+    // элемент в компоненте один и стабилен, захват делает гарантию явной.
+    let rvfcVideo: HTMLVideoElement | null = null;
+    const supportsRvfc =
+      typeof HTMLVideoElement !== "undefined" &&
+      "requestVideoFrameCallback" in HTMLVideoElement.prototype;
+
+    if (supportsRvfc) {
+      const v0 = videoRef.current;
+      rvfcVideo = v0;
+      const onFrame = (now: number, metadata: VideoFrameCallbackMetadata) => {
+        if (!active) return;
+        // Перерегистрируемся на следующий кадр камеры (аналог rAF-цикла) — по
+        // тому же элементу, что и при первой регистрации.
+        rvfcHandle = rvfcVideo ? rvfcVideo.requestVideoFrameCallback(onFrame) : 0;
+        // mediaTime (сек) — истинное время кадра камеры; в мс для монотонного ts.
+        detect(
+          typeof metadata?.mediaTime === "number" ? metadata.mediaTime * 1000 : now
+        );
+      };
+      if (v0) rvfcHandle = v0.requestVideoFrameCallback(onFrame);
+    } else {
+      const tick = () => {
+        if (!active) return;
+        raf = requestAnimationFrame(tick);
+        detect(performance.now());
+      };
+      raf = requestAnimationFrame(tick);
+    }
 
     return () => {
       active = false;
       cancelAnimationFrame(raf);
+      if (rvfcHandle && rvfcVideo && "cancelVideoFrameCallback" in rvfcVideo) {
+        try {
+          rvfcVideo.cancelVideoFrameCallback(rvfcHandle);
+        } catch {
+          /* noop */
+        }
+      }
       if (io) io.disconnect();
     };
   }, [phase, modelReady]);

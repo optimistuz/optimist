@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import type { Pt } from "@/lib/face-shape";
 import type { FrameKind } from "@/lib/fit-recommend";
+import { MultiFilter } from "@/lib/one-euro";
 
 /* ------------------------------------------------------------------
    Чертёж оправы на лице (Блок 4, переработка 4 — МАТЕРИАЛЬНЫЙ РЕНДЕР).
@@ -389,8 +390,11 @@ export function FrameOverlay({
     let raf = 0;
     let prev = performance.now();
     let lastPaint = 0;
-    const PAINT_MS = 33; // материальный рендер дороже обводки — красим ~30 fps
+    const PAINT_MS = 16; // 60 fps: интерполяция якорей сглаживает шаги детекции
     let active = true;
+    // Сглаживание якорей примерки. Параметры — старт; финальная настройка на
+    // живой камере (приёмка). Сброс при потере лица (ниже). Фундамент one-euro.ts.
+    const smoother = new MultiFilter({ minCutoff: 1.2, beta: 0.02, dCutoff: 1.2 });
 
     const ensureSize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -694,7 +698,7 @@ export function FrameOverlay({
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
 
       const now = performance.now();
-      if (now - lastPaint < PAINT_MS) return; // троттлинг покраски до ~30 fps
+      if (now - lastPaint < PAINT_MS) return; // троттлинг покраски по PAINT_MS (60 fps)
       const dt = now - prev;
       prev = now;
       lastPaint = now;
@@ -716,8 +720,23 @@ export function FrameOverlay({
         offY + ny * dispH,
       ];
 
-      const a = anchorsFrom(lm, project);
-      if (!a) return;
+      const raw = anchorsFrom(lm, project);
+      if (!raw) {
+        smoother.reset(); // лицо потеряно — начать сглаживание заново
+        return;
+      }
+
+      // One-Euro по каналам: 60 fps без дрожи между детекциями (24–30 fps).
+      const ipd = smoother.filter("ipd", raw.ipd, now);
+      const a: FrameAnchors = {
+        cx: smoother.filter("cx", raw.cx, now),
+        cy: smoother.filter("cy", raw.cy, now),
+        angle: smoother.filter("angle", raw.angle, now),
+        ipd,
+        lensCY: ipd * 0.07, // производная от ipd, как в anchorsFrom
+        squashL: smoother.filter("squashL", raw.squashL, now),
+        squashR: smoother.filter("squashR", raw.squashR, now),
+      };
 
       const f = fadeRef.current;
       if (f.t < 1) {
