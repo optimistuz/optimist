@@ -1,0 +1,29 @@
+/* Standalone-прогон юнит-тестов чистых функций (без тест-фреймворка —
+   зависимостей в проекте не заводим, CLAUDE.md «Стек»).
+
+     npx tsc -p tsconfig.test.json && node .tmp-test/lib/fit-passport.test.js
+
+   Отличия от основного конфига: commonjs + эмиссия в .tmp-test и разрешение
+   алиаса «@/» через baseUrl/paths (tsc CLI флагом paths не умеет).
+   Папка .tmp-test — временная, в .gitignore. */
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": ".tmp-test",
+    "rootDir": "./src",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "allowImportingTsExtensions": false,
+    "isolatedModules": false,
+    "target": "es2019",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  /* Тесты берутся ГЛОБОМ, а не перечислением: новый `*.test.ts` попадает
+     в прогон сам. Перечисление уже однажды оставило `face-shape.test.ts`
+     мёртвым — живой тест, не подключённый ни к чему. */
+  "include": ["src/lib/**/*.ts", "src/content/catalog/frame.ts"]
+}

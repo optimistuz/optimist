@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import type { Pt } from "@/lib/face-shape";
 import type { FrameKind } from "@/lib/fit-recommend";
 import { MultiFilter } from "@/lib/one-euro";
+import { createRenderScale } from "@/lib/render-scale";
 
 /* ------------------------------------------------------------------
    Чертёж оправы на лице (Блок 4, переработка 4 — МАТЕРИАЛЬНЫЙ РЕНДЕР).
@@ -390,14 +391,37 @@ export function FrameOverlay({
     let raf = 0;
     let prev = performance.now();
     let lastPaint = 0;
-    const PAINT_MS = 16; // 60 fps: интерполяция якорей сглаживает шаги детекции
+    // Стоимость последней полной покраски, мс. Датчик клапана разрешения.
+    let lastCost = 0;
+    // Потолок частоты покраски. ⚠️ НЕ 16: троттлинг квантуется по частоте
+    // экрана, и на 90-герцевой панели (Galaxy A15 — эталон!) первый интервал
+    // ≥ 16 мс равен 22,2 мс, то есть обещанные «60 fps» превращались в 45
+    // (нашёл `hronometrist`). При 10 мс: 60 Гц → каждый кадр (60 fps),
+    // 90 Гц → каждый кадр (90 fps), 120 Гц → через кадр (60 fps).
+    const PAINT_MS = 10;
     let active = true;
+    let inView = true;
     // Сглаживание якорей примерки. Параметры — старт; финальная настройка на
     // живой камере (приёмка). Сброс при потере лица (ниже). Фундамент one-euro.ts.
     const smoother = new MultiFilter({ minCutoff: 1.2, beta: 0.02, dCutoff: 1.2 });
 
+    // Клапан разрешения (закон движка №3): деградирует НЕВИДИМОЕ внутреннее
+    // разрешение канваса, а не сам чертёж. На A15/A54 покраска 60 fps рядом с
+    // детекцией — самое дорогое место этапа; при просадке кадра оверлей
+    // становится мягче, но не пропадает и не теряет частоту.
+    // ⚠️ Пол 0,85, а не общий 0,5. Этот канвас рисует ВОЛОСЯНУЮ векторную
+    // графику: ободок ipd*0.005 ≈ 0,5 CSS px, брекеты 1,4 px. На полу 0,5 при
+    // DPR 2 растр чертежа становится вдвое беднее — и это уже деградация
+    // ЭФФЕКТА, а не невидимого разрешения, то есть нарушение закона №3.
+    // Рядом соседний канвас скана держит DPR 2, и в одном кадре получалось бы:
+    // красные кресты резкие, чертёж оправы мыльный (нашёл `fizik`). Канон
+    // знает этот случай — гравировку линзы увели в DOM-SVG ровно потому, что
+    // она обязана быть резкой на любом renderScale (plan.md:387).
+    const rs = createRenderScale({ min: 0.85 });
+    rs.attach();
+
     const ensureSize = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = rs.pixelRatio();
       const bw = canvas.clientWidth;
       const bh = canvas.clientHeight;
       const nw = Math.round(bw * dpr);
@@ -412,6 +436,32 @@ export function FrameOverlay({
     const ro =
       typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => ensureSize()) : null;
     if (ro) ro.observe(canvas);
+
+    // Пауза вне вьюпорта (правило вечного движения: канвас спит, когда его не
+    // видно). Петля ДЕТЕКЦИИ уже так устроена (face-camera.tsx), а покраска
+    // до сих пор крутилась вхолостую при уходе секции из кадра.
+    const io =
+      typeof IntersectionObserver !== "undefined"
+        ? new IntersectionObserver(
+            (entries) => {
+              inView = entries[0]?.isIntersecting ?? true;
+              if (inView) {
+                // Простой вне кадра — не повод считать устройство медленным.
+                rs.reset();
+                // ⚠️ И не повод ПЕРЕПРЫГНУТЬ кроссфейд. `dt` считается от
+                // `prev`, а он застыл на моменте ухода из кадра: первая
+                // покраска по возвращении получала dt за весь простой, и
+                // `f.t += dt/FADE_MS` мгновенно доводил переход силуэта до
+                // конца — вместо перехода зритель видел щелчок (нашёл
+                // `fizik`). Часы возобновляем вместе с петлёй.
+                prev = performance.now();
+                lastPaint = 0;
+              }
+            },
+            { threshold: 0.01 }
+          )
+        : null;
+    if (io) io.observe(canvas);
 
     const anchorsFrom = (
       lm: Pt[],
@@ -696,12 +746,19 @@ export function FrameOverlay({
       raf = requestAnimationFrame(draw);
 
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      if (!inView) return; // секция ушла из кадра — не красим
 
       const now = performance.now();
       if (now - lastPaint < PAINT_MS) return; // троттлинг покраски по PAINT_MS (60 fps)
       const dt = now - prev;
       prev = now;
       lastPaint = now;
+
+      // Стоимость ПРОШЛОЙ покраски → клапан разрешения. Меряем работу, а не
+      // интервал: интервал задан троттлингом и герцовкой экрана и от
+      // разрешения не зависит — клапан на нём саморазгонялся в упор
+      // (см. докстроку render-scale.ts).
+      rs.sample(lastCost, now);
 
       const { dpr, bw, bh } = ensureSize();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -744,6 +801,12 @@ export function FrameOverlay({
         if (f.from !== f.to) strokeFrame(BUILDERS[f.from].build(a), a, 1 - f.t);
       }
       strokeFrame(BUILDERS[f.to].build(a), a, f.t < 1 ? f.t : 1);
+
+      // Стоимость ЭТОЙ покраски — датчик клапана на следующем кадре. Замер
+      // берётся только здесь, в конце полного пути рисования: ранние `return`
+      // (нет лица, ушли из кадра) означают, что работы не было, и кормить
+      // клапан их нулём значило бы врать ему о лёгкости.
+      lastCost = performance.now() - now;
     };
 
     ensureSize();
@@ -753,8 +816,10 @@ export function FrameOverlay({
       active = false;
       cancelAnimationFrame(raf);
       if (ro) ro.disconnect();
+      if (io) io.disconnect();
+      rs.detach();
       try {
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const dpr = rs.pixelRatio();
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
       } catch {

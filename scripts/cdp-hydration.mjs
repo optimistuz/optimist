@@ -14,6 +14,21 @@
  *
  * Находка = падение (exit 1). Гейт, который только печатает, гейтом не
  * является: его вывод однажды прочитают глазами и пропустят.
+ *
+ * ⚠️ ПРОГРЕЙ МАРШРУТЫ ПЕРЕД ПРОГОНОМ. `next dev` компилирует маршрут при
+ * ПЕРВОМ заходе, и на холодном это дольше здешних 9 с ожидания — прибор
+ * честно роняет прогон с «живая разметка: нет», хотя со страницей всё в
+ * порядке. Симптом узнаётся по тому, что падает КАЖДЫЙ РАЗ СЛЕДУЮЩИЙ по
+ * списку маршрут (предыдущий уже прогрелся прошлым прогоном). Лечится
+ * одним обходом до запуска:
+ *   foreach ($u in @("/","/collections/optical","/privacy")) {
+ *     Invoke-WebRequest -Uri "http://127.0.0.1:3000$u" -UseBasicParsing }
+ * Поднимать порог ожидания вместо прогрева НЕ надо: он удлиняет каждый
+ * прогон ради одного холодного старта.
+ *
+ * ⚠️ В Git Bash на Windows аргумент `--routes=/,/privacy` калечит MSYS
+ * (подстановка путей): получается «Cannot navigate to invalid URL».
+ * Запускай из PowerShell или экранируй аргумент кавычками.
  */
 import http from "node:http";
 import crypto from "node:crypto";
@@ -135,8 +150,29 @@ async function cdpSession(wsUrl) {
       for (const fn of handlers.get(msg.method)) fn(msg.params);
     }
   });
+  // ⚠️ СМЕРТЬ СОКЕТА ОБЯЗАНА БЫТЬ ОШИБКОЙ, А НЕ ТИШИНОЙ.
+  // Без этого висящие `call` никто не отклонял: событийный цикл пустел, и
+  // node выходил С КОДОМ 0 И ПУСТЫМ ВЫВОДОМ — прогон «успешно проходил», не
+  // проверив ни одного маршрута. Ловилось на конкуренции за отладочный порт
+  // (нашёл `fizik`; он же поймал это 4 раза подряд). Прибор, который молчит
+  // при поломке, опаснее отсутствующего: его молчание читают как «чисто».
+  let dead = false;
+  const killPending = (why) => {
+    if (dead) return;
+    dead = true;
+    const err = new Error(`CDP-сессия оборвалась: ${why}`);
+    for (const [, p] of pending) p.reject(err);
+    pending.clear();
+  };
+  ws.socket.on("close", () => killPending("сокет закрыт"));
+  ws.socket.on("error", (e) => killPending(e?.message || "ошибка сокета"));
+
   const call = (method, params = {}) =>
     new Promise((resolve, reject) => {
+      if (dead) {
+        reject(new Error("CDP-сессия мертва: вызов после обрыва"));
+        return;
+      }
       const id = nextId++;
       pending.set(id, { resolve, reject });
       ws.send(JSON.stringify({ id, method, params }));
@@ -271,6 +307,18 @@ async function main() {
     await sleep(800);
   }
   console.log(JSON.stringify(out, null, 2));
+
+  // ⚠️ Пустой прогон — ПРОВАЛ, а не успех. Ожидаем ровно три прохода на
+  // маршрут (обычный / reduced-motion / мобильный); недобор означает, что
+  // часть проверок молча не состоялась, а «чисто» по ним — вымысел.
+  const expected = ROUTES.length * 3;
+  if (out.length !== expected) {
+    console.error(
+      `\nПРОГОН НЕПОЛНЫЙ: состоялось ${out.length} проверок из ${expected}. ` +
+        `Результату верить нельзя.`
+    );
+    process.exit(1);
+  }
 
   const dirty = out.filter((r) => r.count > 0);
   if (dirty.length) {

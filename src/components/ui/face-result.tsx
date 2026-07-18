@@ -7,6 +7,7 @@ import { cn } from "@/lib/cn";
 import { EASE } from "@/lib/motion";
 import { recommendByFace } from "@/lib/fit-recommend";
 import type { Shape } from "@/lib/face-shape";
+import { FitPassportBlock } from "@/components/ui/fit-passport-block";
 import {
   faceFit,
   faceResultGenitive,
@@ -106,6 +107,11 @@ export function FaceResult({
           </li>
         ))}
       </ul>
+
+      {/* Паспорт посадки — ГЕОМЕТРИЯ. Публикуется сразу: это замер, а не
+          обещание посадки (CLAUDE.md, «Витрина» п. 6). Стилевого скора здесь
+          нет — он ждёт подписи оптометриста (§10 Q9). */}
+      <FitPassportBlock className="mt-10" />
 
       {/* Поправить вручную — чипсы шести форм (фокус-идиома) */}
       <div className="mt-10">

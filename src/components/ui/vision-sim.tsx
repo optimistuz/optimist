@@ -14,6 +14,7 @@ import {
 } from "motion/react";
 import { Photo } from "@/components/ui/photo";
 import { cn } from "@/lib/cn";
+import { haptic } from "@/lib/haptics";
 import type { PhotoSlot } from "@/content/photos";
 
 /* ------------------------------------------------------------------
@@ -152,22 +153,10 @@ export function VisionSim({
   const handleRef = useRef<HTMLDivElement>(null);
   // Первое взаимодействие (читают и гаптика снапа, и отмена толчка)
   const touchedRef = useRef(false);
-  // Гаптика снапа ступени (Android): navigator.vibrate(6), не чаще раза
-  // в 40 мс, только при взаимодействии и не при reduced-motion. iOS молча.
-  const lastBuzz = useRef(0);
-  const buzz = () => {
-    if (reduce) return;
-    if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function")
-      return;
-    const now = Date.now();
-    if (now - lastBuzz.current < 40) return;
-    lastBuzz.current = now;
-    try {
-      navigator.vibrate(6);
-    } catch {
-      /* молча: платформа не поддержала */
-    }
-  };
+  // Гаптика снапа ступени — через единую точку `lib/haptics.ts` (CLAUDE.md).
+  // Свой inline-вызов здесь держал длительность 6 мс мимо словаря и троттлил
+  // сам себя, не зная о соседних эффектах; теперь и словарь, и окно общие.
+  const buzz = () => haptic("snap", reduce);
 
   // Внутри компонент живёт в МОДУЛЕ диоптрий (0 … maxDiopters);
   // знак — вопрос отображения (signDisplay), не математики.

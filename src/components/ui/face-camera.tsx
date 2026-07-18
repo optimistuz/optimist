@@ -18,6 +18,9 @@ import {
 } from "@/lib/face-shape";
 import { overlayForFace, type FrameKind } from "@/lib/fit-recommend";
 import { writeFit } from "@/lib/fit-storage";
+import { createPassportMeter } from "@/lib/fit-passport";
+import { setFitSession, clearFitSession } from "@/lib/fit-session";
+import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/cn";
 import { faceFit } from "@/content/home";
 
@@ -51,7 +54,17 @@ const FRAME_KINDS: FrameKind[] = [
    ------------------------------------------------------------------ */
 
 type Phase = "requesting" | "streaming" | "denied" | "unsupported";
-type SubPhase = "analyzing" | "result";
+/**
+ * «analyzing» — копим кадры; «settling» — ПАУЗА-ВДОХ единого success-момента
+ * (CLAUDE.md, «Невидимая геймификация»): решение уже принято, но кадр ещё
+ * держится — вспышка узлов, затем наведение на резкость; «result» — карточка.
+ * Такт нужен именно как пауза: без него узнавание слипается с появлением
+ * текста и «щелчка» не читается.
+ */
+type SubPhase = "analyzing" | "settling" | "result";
+
+/** Длительность паузы-вдоха, мс (канон: 300–400). */
+const SETTLE_MS = 350;
 
 /* Сходимость классификации (стабильность результата у одного человека):
    сначала наполняем окно медианы (WINDOW), затем требуем, чтобы один и тот
@@ -123,6 +136,13 @@ export function FaceCamera({
 
   // Мутабельное состояние петли — в рефах, чтобы эффект не пересоздавался.
   const estimatorRef = useRef(createEstimator());
+  // Замер миллиметров (этап 7, шаг 3). Живёт рядом с оценщиком формы и
+  // стирается теми же руками: паспорт — такая же биометрия, как ландмарки.
+  const passportRef = useRef(createPassportMeter());
+  // Таймер паузы-вдоха. Держим ссылку: размонтирование, остановка камеры и
+  // пересканирование обязаны его снять — иначе отложенный commit оживит
+  // результат уже погашенной сессии.
+  const settleTimerRef = useRef(0);
   // Сходимость решения (стабильность результата): держим последний primary и
   // сколько кадров подряд он держится; плюс общий счётчик чистых кадров.
   const lastPrimaryRef = useRef<Shape | null>(null);
@@ -172,8 +192,29 @@ export function FaceCamera({
       }
       v.srcObject = null;
     }
+    // Отложенный «щелчок фокуса» гасим первым: камеры уже нет, показывать
+    // результат по её мотивам нельзя.
+    if (settleTimerRef.current) {
+      window.clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = 0;
+    }
     // Буквальное «стирается после подбора»: окно усреднения и ландмарки.
     estimatorRef.current.reset();
+    // Окно замера — сырьё, как ландмарки: гаснет вместе с потоком.
+    passportRef.current.reset();
+    // ⚠️ СНЯТЫЙ паспорт (`fit-session`) здесь НЕ стираем — и это не поблажка
+    // приватности, а её точное чтение. Канон стирает СЫРЬЁ: поток, кадр,
+    // ландмарки, окно усреднения. Снятая мерка — РЕЗУЛЬТАТ, показанный
+    // человеку, ровно как форма лица (та живёт в React-стейте и переживает
+    // stopStream уже сегодня). Она и так не покидает память вкладки и умирает
+    // вместе с ней.
+    // Стирали здесь — и ловили две беды разом (нашёл `strazh`): камера уходит
+    // в standby через 8 с вне вьюпорта, поэтому «Ваши миллиметры» молча
+    // испарялись у человека, прокрутившего страницу к форме записи; и рушилась
+    // собственная цель `fit-session.ts` («ушёл в каталог — „ваша ширина“
+    // обязана его там встретить») — бейджи этапов 12–13 всегда получали пустоту.
+    // Явное стирание живёт там, где человек ДЕЙСТВИТЕЛЬНО начинает заново:
+    // в `restart` (см. ниже).
     lastPrimaryRef.current = null;
     stableCountRef.current = 0;
     cleanCountRef.current = 0;
@@ -336,6 +377,10 @@ export function FaceCamera({
       if (subphaseRef.current === "analyzing" && q === "ok" && !moving && lm) {
         const est = estimatorRef.current;
         est.add(featuresFromLandmarks(lm, w, h));
+        // Миллиметры копятся на тех же чистых кадрах. Свои, более строгие
+        // ворота фронтальности замер держит внутри (поворот бьёт по PD
+        // сильнее, чем по отношениям формы) — негодный кадр он молча минует.
+        passportRef.current.add(lm, w, h);
         cleanCountRef.current += 1;
         const collected = est.count();
 
@@ -367,25 +412,54 @@ export function FaceCamera({
             const converged =
               stableCountRef.current >= STABLE_NEEDED && d.confident;
             if (converged || cleanCountRef.current >= HARD_MAX) {
-              setDecision(d);
-              // Силуэт по умолчанию — рекомендованный для формы (если пользователь
-              // ещё не выбрал свой). Смена даёт «наведение» кроссфейдом.
-              if (!frameTouchedRef.current) setFrameKind(overlayForFace(d.primary));
-              subphaseRef.current = "result";
-              setSubphase("result");
-              // «Наведение на резкость» кадра — одноразовый blur 8→0 (5.2),
-              // выразитель концепции, не цикл. reduced-motion: без него.
-              const vEl = videoRef.current;
-              if (vEl && !reduceRef.current) {
-                vEl.style.transition = "none";
-                vEl.style.filter = "blur(8px)";
-                requestAnimationFrame(() => {
-                  const v2 = videoRef.current;
-                  if (!v2) return;
-                  v2.style.transition = "filter 600ms ease";
-                  v2.style.filter = "blur(0px)";
+              // ТАКТ 1 — вдох. Накопление прекращается (петля смотрит на
+              // "analyzing"), кино-скан даёт финальную вспышку узлов.
+              subphaseRef.current = "settling";
+              setSubphase("settling");
+
+              // ТАКТ 2 — щелчок фокуса, через паузу. reduce: без паузы и без
+              // вспышки — резкий результат сразу (доступность, не слабость).
+              const commit = () => {
+                setDecision(d);
+                // Мерка — в память ВКЛАДКИ, и только туда: ни localStorage, ни
+                // сети, ни аналитики (CLAUDE.md, «Витрина» п. 3). Паспорт может
+                // не набраться (мало фронтальных кадров) — тогда уходит одна
+                // форма лица, без миллиметров. Молчание честнее выдуманных мм.
+                const passport = passportRef.current.read();
+                setFitSession({
+                  face: d.primary,
+                  secondary: d.secondary,
+                  confident: d.confident,
+                  pd: passport?.pd,
+                  faceWidth: passport?.faceWidth,
+                  widthStep: passport?.widthStep,
                 });
-              }
+                // Силуэт по умолчанию — рекомендованный для формы (если
+                // пользователь ещё не выбрал свой). Смена даёт кроссфейд.
+                if (!frameTouchedRef.current)
+                  setFrameKind(overlayForFace(d.primary));
+                subphaseRef.current = "result";
+                setSubphase("result");
+                // «Наведение на резкость» кадра — одноразовый blur 8→0 (5.2),
+                // выразитель концепции, не цикл. reduced-motion: без него.
+                const vEl = videoRef.current;
+                if (vEl && !reduceRef.current) {
+                  vEl.style.transition = "none";
+                  vEl.style.filter = "blur(8px)";
+                  requestAnimationFrame(() => {
+                    const v2 = videoRef.current;
+                    if (!v2) return;
+                    v2.style.transition = "filter 600ms ease";
+                    v2.style.filter = "blur(0px)";
+                  });
+                }
+                // Тактильный «щелчок» — ровно в момент наведения на резкость,
+                // единый success-момент проекта. Android; iOS молчит.
+                haptic("success", reduceRef.current);
+              };
+
+              if (reduceRef.current) commit();
+              else settleTimerRef.current = window.setTimeout(commit, SETTLE_MS);
             }
           }
         }
@@ -496,7 +570,15 @@ export function FaceCamera({
   };
 
   const restart = () => {
+    if (settleTimerRef.current) {
+      window.clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = 0;
+    }
     estimatorRef.current.reset();
+    // Пересканирование начинает мерку с нуля: числа прошлой попытки не имеют
+    // права подмешаться в новую медиану (и не переживают её в памяти).
+    passportRef.current.reset();
+    clearFitSession();
     lastPrimaryRef.current = null;
     stableCountRef.current = 0;
     cleanCountRef.current = 0;
@@ -597,18 +679,42 @@ export function FaceCamera({
           <FrameOverlay kind={frameKind} latestRef={latestRef} reduce={reduce} />
         )}
 
-        {/* Кино-скан (Блок 5) — только во время анализа; завершается
-            наведением на резкость и снимается на результате. */}
+        {/* Кино-скан (Блок 5) — во время анализа И на такте вдоха: финальная
+            вспышка узлов живёт именно в паузе, поэтому скан снимается только
+            на результате, а не в момент сходимости. */}
         {phase === "streaming" &&
           modelReady &&
           !standby &&
-          subphase === "analyzing" && (
+          subphase !== "result" && (
             <FaceScan
               latestRef={latestRef}
               reduce={reduce}
               waiting={hint !== ""}
+              finale={subphase === "settling"}
             />
           )}
+
+        {/* ГРИП (шаг 6) — глубина резкости вокруг лица: центр кадра чистый,
+            края мягко уходят в фон, как на портретной оптике.
+
+            ⚠️ ПОЧЕМУ ГРАДИЕНТ, А НЕ BLUR. Живой фильтр на видео запрещён
+            (тяжёлая резкость снимается камерой или запекается), а запечь
+            ассет для ЖИВОГО потока нельзя в принципе — кадра на диске не
+            существует. Поэтому ГРИП здесь тональный: статичный радиальный
+            градиент в цвет фона. Ноль фильтров, ноль перерисовки, и функцио-
+            нальное содержимое кадра (лицо, чертёж оправы) остаётся РЕЗКИМ.
+
+            ⚠️ Слой — СОСЕД видео и оверлея, а не их обёртка: обёртка с
+            градиентом завела бы stacking context над ними (закон FloatFrame
+            №1). Он же не перехватывает ввод и не читается скринридером. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 rounded-lg"
+          style={{
+            background:
+              "radial-gradient(ellipse 78% 68% at 50% 45%, rgba(246,244,239,0) 55%, rgba(246,244,239,0.55) 82%, rgba(246,244,239,0.92) 100%)",
+          }}
+        />
 
         {/* Камера на паузе (ушли из вьюпорта надолго) */}
         {standby && (

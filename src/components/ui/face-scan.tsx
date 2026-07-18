@@ -98,15 +98,26 @@ export function FaceScan({
   latestRef,
   reduce,
   waiting,
+  finale = false,
 }: {
   latestRef: { current: { lm: Pt[] | null; w: number; h: number } };
   reduce: boolean;
   waiting: boolean;
+  /** Такт вдоха: решение принято — вся сетка вспыхивает разом, линия уходит. */
+  finale?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [statusIdx, setStatusIdx] = useState(0);
   const waitingRef = useRef(waiting);
   waitingRef.current = waiting;
+  // Признак финала для петли. ⚠️ САМА МЕТКА ВРЕМЕНИ ставится в ПЕРВОМ КАДРЕ
+  // покраски, а не здесь: раньше она бралась на рендере, а огибающая читалась
+  // на покраске, и разрыв commit→первый кадр съедал голову 320-мс вспышки —
+  // на загруженном A15 «щелчок фокуса» мог обрезаться или не показаться вовсе,
+  // то есть ровно там, под что он и настроен (нашёл `fizik`).
+  const finaleRef = useRef(false);
+  finaleRef.current = finale;
+  const finaleAtRef = useRef(0);
 
   // Бегущая строка статуса — только в анимной ветке.
   useEffect(() => {
@@ -145,6 +156,22 @@ export function FaceScan({
         ? new ResizeObserver(() => ensureSize())
         : null;
     if (ro) ro.observe(canvas);
+
+    // Пауза вне вьюпорта. Этот канвас ДОРОЖЕ соседнего (брекеты + след линии
+    // + до 78 узлов), а до ухода камеры в standby проходит 8 с — всё это
+    // время петля крутилась впустую за пределами экрана. Ровно тот дефект,
+    // который только что починили в frame-overlay (нашёл `hronometrist`).
+    let inView = true;
+    const io =
+      typeof IntersectionObserver !== "undefined"
+        ? new IntersectionObserver(
+            (entries) => {
+              inView = entries[0]?.isIntersecting ?? true;
+            },
+            { threshold: 0.01 }
+          )
+        : null;
+    if (io) io.observe(canvas);
 
     const projectorFor = (
       bw: number,
@@ -189,6 +216,7 @@ export function FaceScan({
         active = false;
         window.removeEventListener("resize", onResize);
         if (ro) ro.disconnect();
+        if (io) io.disconnect();
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
@@ -203,6 +231,7 @@ export function FaceScan({
         document.visibilityState !== "visible"
       )
         return;
+      if (!inView) return; // секция ушла из кадра — не рисуем
 
       const { dpr, bw, bh } = ensureSize();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -227,6 +256,48 @@ export function FaceScan({
       const tms = performance.now();
       const breath = 2 + 2 * Math.sin(tms / 600);
       corners(ctx, box, breath, "rgba(13,13,13,0.75)");
+
+      // ФИНАЛ (шаг 5): решение принято — сканирующая линия уходит, и вся сетка
+      // вспыхивает разом. Вспышка ГРАФИЧЕСКАЯ: те же кресты #FD0000, что и в
+      // проходе линии, только все сразу и с быстрым спадом. Никакого свечения
+      // и никаких частиц — «дорого = точность» (CLAUDE.md, запреты).
+      // Метка ставится здесь — в первом кадре, который реально красится.
+      if (!finaleRef.current) finaleAtRef.current = 0;
+      else if (!finaleAtRef.current) finaleAtRef.current = tms;
+
+      const finaleAt = finaleAtRef.current;
+      if (finaleAt) {
+        const done = tms - finaleAt >= 320;
+        // Вспышка отыграла — рисовать нечего. Без этого петля до самого
+        // размонтирования обходила 78 узлов с globalAlpha 0 (`fizik`).
+        if (done) return;
+        if (project && lm) {
+          const t = Math.min(1, (tms - finaleAt) / 320);
+          // Резкий приход (первые ~15% времени) и мягкий спад — «щелчок».
+          const a = t < 0.15 ? t / 0.15 : Math.max(0, 1 - (t - 0.15) / 0.85);
+          ctx.strokeStyle = RED;
+          ctx.globalAlpha = a * 0.9;
+          ctx.lineWidth = 1;
+          // ОДИН путь на все узлы: в финале альфа общая, поэтому 78 отдельных
+          // stroke() были бы 78 вызовами растеризатора вместо одного
+          // (нашёл `hronometrist`). В проходе линии так нельзя — там альфа
+          // у каждого узла своя, и батчинг честно не проходит.
+          ctx.beginPath();
+          for (const i of NODES) {
+            const p = lm[i];
+            if (!p) continue;
+            const [x, y] = project(p.x, p.y);
+            const s = 2.6;
+            ctx.moveTo(x - s, y);
+            ctx.lineTo(x + s, y);
+            ctx.moveTo(x, y - s);
+            ctx.lineTo(x, y + s);
+          }
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+        return; // линия и «считывание» в финале не рисуются
+      }
 
       // Когда ждём (нет чистых кадров) — линию/узлы гасим, не «доезжаем».
       const dim = wait ? 0.25 : 1;
@@ -288,6 +359,7 @@ export function FaceScan({
       active = false;
       cancelAnimationFrame(raf);
       if (ro) ro.disconnect();
+      if (io) io.disconnect();
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);

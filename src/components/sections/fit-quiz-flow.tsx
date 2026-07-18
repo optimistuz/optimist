@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { AnimatePresence, motion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { FaceIcon } from "@/components/ui/face-icon";
@@ -9,6 +10,22 @@ import { EASE } from "@/lib/motion";
 import { recommend } from "@/lib/fit-recommend";
 import { writeFit } from "@/lib/fit-storage";
 import { fitQuiz, fitResult, site } from "@/content/home";
+
+/**
+ * Паспорт посадки — ЛЕНИВО и без SSR.
+ *
+ * ⚠️ Статический импорт стоил критическому пути «/» ровно 1 КБ и вывел его
+ * за потолок 197 КБ (docs/perf-budgets.md): блок тянет `fit-session` и
+ * лестницу ширин из `catalog/frame`. Ленивая загрузка ничего не отнимает
+ * у пользователя — блок осмыслен ТОЛЬКО когда мерка уже снята камерой,
+ * а камера сама живёт в ленивом чанке (`fit-quiz.tsx`). Квизовому пути
+ * без камеры он не нужен вовсе и не грузится.
+ */
+const FitPassportBlock = dynamic(
+  () =>
+    import("@/components/ui/fit-passport-block").then((m) => m.FitPassportBlock),
+  { ssr: false }
+);
 
 /* ------------------------------------------------------------------
    Квиз «Подбор» — запасной путь (три шага: форма лица → что носите →
@@ -307,6 +324,10 @@ export default function QuizFlow({
                 <p className="mt-6 max-w-xl text-sm leading-relaxed text-graphite/80">
                   {fitQuiz.guide}
                 </p>
+                {/* Мерка, снятая камерой, доезжает и сюда: она живёт в памяти
+                    вкладки, а человек мог начать с камеры и уйти в квиз. Если
+                    камеру не включали — блок не рендерится вовсе. */}
+                <FitPassportBlock className="mt-8" />
                 <p className="mt-8 text-sm tracking-wide text-graphite">
                   {fitQuiz.bothSalons}
                 </p>

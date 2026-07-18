@@ -10,7 +10,8 @@
     "start": "next start",
     "lint": "next lint",
     "validate:catalog": "node --no-warnings=MODULE_TYPELESS_PACKAGE_JSON scripts/validate-catalog.mjs",
-    "validate:catalog:self": "node --no-warnings=MODULE_TYPELESS_PACKAGE_JSON scripts/validate-catalog.mjs --self-check"
+    "validate:catalog:self": "node --no-warnings=MODULE_TYPELESS_PACKAGE_JSON scripts/validate-catalog.mjs --self-check",
+    "test:lib": "tsc -p tsconfig.test.json && node --no-warnings=MODULE_TYPELESS_PACKAGE_JSON scripts/run-lib-tests.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.35",
