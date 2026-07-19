@@ -97,8 +97,26 @@ void main() {
 }
 `;
 
+/**
+ * Дисперсия у кромки, ПИКСЕЛИ НА ЭКРАНЕ (шейдер делит на увеличение).
+ * Бюджет канона — ≤2px, «субтильная».
+ *
+ * ⚠️ ЗНАЧЕНИЕ ЗАВИСИТ ОТ ИСТОЧНИКА, и это не вкусовщина. На фотографии
+ * расхождение каналов тонет в собственных полутонах кадра, а на ВОЛОСЯНОЙ
+ * графике чертежа — одиночная чёрная линия в 1px на светлом листе — тот же
+ * сдвиг читается цветной каймой и выглядит браком печати, а не стеклом.
+ * Замечено на живом кадре: арифметически бюджет соблюдался в обоих случаях,
+ * глазами — нет.
+ */
+const DISPERSION_PHOTO = 1.6;
+const DISPERSION_SVG = 0.8;
+
 /** Программа линзы — одна на оба источника текстуры. */
-function makeProgram(gl: GLSetupArgs["gl"], texture: Texture) {
+function makeProgram(
+  gl: GLSetupArgs["gl"],
+  texture: Texture,
+  dispersion: number
+) {
   return new Program(gl, {
     vertex: VERT,
     fragment: FRAG,
@@ -112,9 +130,7 @@ function makeProgram(gl: GLSetupArgs["gl"], texture: Texture) {
       uRadius: { value: 98 },
       uZoom: { value: 1.85 },
       uOpacity: { value: 0 },
-      // Пиксели НА ЭКРАНЕ (шейдер делит на увеличение). Бюджет ≤2px —
-      // «субтильная дисперсия» plan.md; 1,6 оставляет запас на кромке.
-      uDispersion: { value: 1.6 },
+      uDispersion: { value: dispersion },
     },
   });
 }
@@ -197,7 +213,8 @@ export function LensGL({
         shoot();
         shootRef.current = shoot;
 
-        const program = makeProgram(gl, texture);
+        // Чертёж — волосяные линии: дисперсия вдвое тише, чем на фото.
+        const program = makeProgram(gl, texture, DISPERSION_SVG);
         programRef.current = program;
         const mesh = new Mesh(gl, { geometry: new Triangle(gl), program });
         return {
@@ -239,7 +256,7 @@ export function LensGL({
       }
 
       const geometry = new Triangle(gl); // полноэкранный треугольник дешевле квада
-      const program = makeProgram(gl, texture);
+      const program = makeProgram(gl, texture, DISPERSION_PHOTO);
       programRef.current = program;
 
       const mesh = new Mesh(gl, { geometry, program });
