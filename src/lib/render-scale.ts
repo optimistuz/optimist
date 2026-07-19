@@ -52,6 +52,19 @@ export interface RenderScale {
    * в пол, НЕ доказывает вину именно этого канваса.
    */
   sample(cost: number, now: number): number;
+  /**
+   * Сменить нижний предел на лету.
+   *
+   * ⚠️ Нужен именно метод, а не проп. Пол зависит от того, ЧТО сейчас на
+   * канвасе: у шторки симулятора при |D| ≥ 1,5 дптр слой и так размыт —
+   * снижать невидимое разрешение честно (0,5); при почти резком слое тот же
+   * пол замылил бы сам эффект (запрет §3-3) и провалил бы приёмку шва.
+   * Через проп это не сделать: `minScale` уходит в `createRenderScale`
+   * внутри эффекта, чей deps-список его содержит, — реактивное значение
+   * ПЕРЕСОЗДАВАЛО БЫ GL-КОНТЕКСТ каждый раз, когда палец пересекает порог
+   * посреди перетаскивания (поймал `dirizher` на брифе, до написания кода).
+   */
+  setMin(v: number): void;
   /** Сбросить временные аккумуляторы (scale «липкий», не сбрасывается). */
   reset(): void;
   /** Повесить сброс по visibilitychange (вызывает потребитель-канвас). */
@@ -119,7 +132,7 @@ export function createFrameOveruse(): FrameOveruse {
 }
 
 export function createRenderScale(opts: RenderScaleOptions = {}): RenderScale {
-  const min = opts.min ?? 0.5;
+  let min = opts.min ?? 0.5;
   const step = opts.step ?? 0.15;
   // Пороги — в миллисекундах РАБОТЫ на кадр. Бюджет кадра при 60 fps — 16,7 мс,
   // и он делится с детекцией, композитором и остальной страницей: покраска
@@ -198,6 +211,12 @@ export function createRenderScale(opts: RenderScaleOptions = {}): RenderScale {
   return {
     sample,
     reset,
+    setMin(v: number) {
+      min = Math.min(1, Math.max(0.1, v));
+      // Уже уехавший ниже нового пола scale подтягиваем сразу: иначе кадр
+      // остался бы мыльнее, чем разрешено, до следующего шага вверх.
+      if (scale < min) scale = min;
+    },
     attach() {
       if (typeof document !== "undefined")
         document.addEventListener("visibilitychange", onVis);

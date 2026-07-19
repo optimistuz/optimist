@@ -64,13 +64,30 @@ export function GLCanvas({
   minScale = 0.5,
   active = true,
   shouldRender,
+  canvasStyle,
+  onValve,
   onContextLost,
 }: {
   /** Сборка сцены. Вызывается ОДИН раз, когда контекст поднят. */
   setup: (args: GLSetupArgs) => GLScene;
   className?: string;
-  /** Нижний предел renderScale для этого канваса (см. контракт выше). */
+  /**
+   * Нижний предел renderScale для этого канваса (см. контракт выше).
+   *
+   * ⚠️ ЧИТАЕТСЯ ОДИН РАЗ, при подъёме контекста. Менять его на лету можно
+   * ТОЛЬКО через `onValve` → `rs.setMin()`: проп участвует в deps-списке
+   * эффекта, и реактивное значение пересоздавало бы GL-контекст на каждое
+   * изменение.
+   */
   minScale?: number;
+  /**
+   * Стиль САМОГО канваса — не обёртки. Шторке симулятора сюда уходят
+   * `clip-path` и маска глубины: на обёртке они дали бы лишний слой, а
+   * скругление контейнера резалось бы канвасом (plan.md, архитектура этапа 6).
+   */
+  canvasStyle?: React.CSSProperties;
+  /** Клапан поднят: хозяин может менять пол по ходу дела. */
+  onValve?: (valve: { setMin: (v: number) => void }) => void;
   /** Внешний выключатель: false — канвас спит (не рисует). */
   active?: boolean;
   /**
@@ -101,6 +118,10 @@ export function GLCanvas({
   lostRef.current = onContextLost;
   const renderGateRef = useRef(shouldRender);
   renderGateRef.current = shouldRender;
+  const valveRef = useRef(onValve);
+  valveRef.current = onValve;
+  // Пол читается ОДИН раз: см. предупреждение у пропа.
+  const minRef = useRef(minScale);
 
   const markLost = useCallback(() => {
     lostRef.current?.();
@@ -162,8 +183,10 @@ export function GLCanvas({
     // перерасхода ≈ шаг × доля потерянных кадров. Порог 8 означал бы
     // «половина кадров потеряна» — слишком поздно; 4 — примерно четверть
     // (plan.md §8, условие 3).
-    const rs = createRenderScale({ min: minScale, slowMs: 4 });
+    const rs = createRenderScale({ min: minRef.current, slowMs: 4 });
     rs.attach();
+    // Отдаём хозяину ручку пола — менять его на лету можно только так.
+    valveRef.current?.({ setMin: rs.setMin });
 
     let inView = true;
     let lost = false;
@@ -284,13 +307,19 @@ export function GLCanvas({
         /* расширения может не быть — не беда */
       }
     };
-  }, [near, ticker, minScale, markLost]);
+    // ⚠️ `minScale` НАМЕРЕННО вне зависимостей: он читается из ref один раз,
+    // а смена на лету идёт через `onValve` → `rs.setMin()`. Верни его сюда —
+    // и GL-контекст будет пересоздаваться каждый раз, когда шторка
+    // симулятора пересекает порог посреди перетаскивания.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [near, ticker, markLost]);
 
   return (
     <div ref={hostRef} className={className} aria-hidden="true">
       <canvas
         ref={canvasRef}
         className="pointer-events-none block h-full w-full"
+        style={canvasStyle}
       />
     </div>
   );

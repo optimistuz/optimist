@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import {
   AnimatePresence,
   animate,
@@ -26,7 +27,30 @@ import type { PhotoSlot } from "@/content/photos";
    Улица (max 6, coeff 0.013) при 1200px: −1 → ~2,6px, −3 → ~7,8px,
    −6 → ~15,6px; при 390px: −6 → ~5px.
    ------------------------------------------------------------------ */
-const BLUR_MAX = 18;
+/**
+ * Слой расфокуса на Kawase — ЛЕНИВО. Статический импорт утащил бы ogl
+ * в критический путь «/» (симулятор живёт на главной), а бюджет главной
+ * израсходован до байта.
+ */
+const VisionBlur = dynamic(
+  () => import("@/components/gl/vision-blur").then((m) => m.VisionBlur),
+  { ssr: false }
+);
+
+/*  ⚠️ ПРОБЫ WebGL ЗДЕСЬ НЕТ, И ЭТО НАМЕРЕННО. Она стоила критическому пути
+    «/» около 200 Б, дублируя такую же функцию в ленивом чанке линзы. Решение
+    проще и дешевле: слой Kawase грузится лениво и САМ сообщает о неудаче
+    (`onFail` — нет WebGL, потерян контекст, не собрался шейдер), а до тех пор
+    и после того работает CSS-ветка. Признак маунта тоже не заводим: `width`
+    от ResizeObserver уже им является. */
+
+/**
+ * Потолок CSS-ФОЛБЭКА (px). ⚠️ 22, а не 18: канон прямо называет это число
+ * («CSS-фолбэк — потолок 22px», CLAUDE.md). Код держал 18 и расходился
+ * с законом — поймано грепом до работы. Основной путь потолка не имеет
+ * вовсе: у Kawase честный радиус.
+ */
+const BLUR_MAX = 22;
 /** Лёгкая потеря контрастности мира: saturate 1.0 → 0.85 на максимуме. Не усиливать. */
 const SAT_LOSS = 0.15;
 
@@ -181,6 +205,9 @@ export function VisionSim({
     }
   });
 
+  /** Kawase не смог (нет WebGL / потерян контекст) — живёт CSS-ветка. */
+  const [glFailed, setGlFailed] = useState(false);
+
   // Ширина контейнера — для калибровки blur и прижима капсулы у краёв
   const [width, setWidth] = useState(0);
   useEffect(() => {
@@ -203,9 +230,33 @@ export function VisionSim({
     return Math.min(Math.max(px, CAPSULE_HALF), Math.max(CAPSULE_HALF, width - CAPSULE_HALF));
   });
 
-  const severity = value / maxDiopters; // 0…1
-  const blur = Math.min(BLUR_MAX, severity * blurCoeff * width);
-  const saturate = 1 - severity * SAT_LOSS;
+  /**
+   * ⚠️ ВИЗУАЛЬНЫЙ РАСФОКУС — НЕПРЕРЫВНЫЙ (этап 6, шаг 1).
+   *
+   * Раньше сила размытия бралась из СНАПНУТОГО `value` и догонялась
+   * переходом `filter 180ms`: позиция шторки скользила плавно, а картинка
+   * прыгала ступенями и всегда с запозданием. Зрение так не работает —
+   * расфокус нарастает непрерывно, и симулятор, который обещает честные
+   * −6 дптр, обязан это показывать.
+   *
+   * Что ОСТАЁТСЯ дискретным (и не трогается): снап ПОЗИЦИИ шторки и
+   * вибрация — они на ступенях 0,5 дптр, как и было (`useMotionValueEvent`
+   * выше). Дискретность — у отклика, непрерывность — у картинки.
+   *
+   * Значение живёт в MotionValue, а не в React-состоянии: пересчёт на
+   * каждый кадр через setState перерисовывал бы дерево 60 раз в секунду.
+   */
+  /** GL-ветка жива: контейнер измерен (значит, смонтированы) и Kawase не пал.
+      Отдельного `mounted` не заводим — `width` уже им является. */
+  const glLive = width > 0 && !glFailed;
+
+  const severityMV = useTransform(position, (v) =>
+    clampAbs((maxDiopters * v) / 100) / maxDiopters
+  );
+  const filterMV = useTransform(severityMV, (s) => {
+    const b = Math.min(BLUR_MAX, s * blurCoeff * width);
+    return `blur(${b.toFixed(2)}px) saturate(${(1 - s * SAT_LOSS).toFixed(3)})`;
+  });
 
   // Подсказка-состояние первого взаимодействия (touchedRef объявлен выше)
   const [touched, setTouched] = useState(false);
@@ -330,19 +381,40 @@ export function VisionSim({
           />
         </div>
 
-        {/* Оверлей «без коррекции»: clip-path скользит плавно, blur
-            пересчитывается только на ступенях; маска глубины (если есть)
-            оставляет низ кадра заметно резче дальнего плана.
+        {/* СЛОЙ «БЕЗ КОРРЕКЦИИ» — Kawase (этап 6). Канвас лежит ВНУТРИ
+            overflow-hidden контейнера и absolute, а clip-path шторки и маска
+            глубины кладутся на САМ канвас — тогда скругление углов и обрезка
+            работают сами. Грузится лениво: пока секция далеко, ogl не нужен.
+            Без WebGL остаётся CSS-ветка ниже — рабочий эффект, не заглушка. */}
+        {glLive && (
+          <VisionBlur
+            hostRef={containerRef}
+            severity={severityMV}
+            blurCoeff={blurCoeff}
+            satLoss={SAT_LOSS}
+            onFail={() => setGlFailed(true)}
+            clip={clipPath}
+            canvasStyle={
+              depthMask
+                ? { maskImage: DEPTH_MASK, WebkitMaskImage: DEPTH_MASK }
+                : undefined
+            }
+          />
+        )}
+
+        {/* CSS-ФОЛБЭК «без коррекции»: непрерывный blur с потолком.
             scale-105 на внутреннем слое прячет прозрачную кайму blur. */}
         <motion.div
           aria-hidden
           className="absolute inset-0"
           style={{
+            display: glLive ? "none" : undefined,
             clipPath,
-            filter: `blur(${blur.toFixed(2)}px) saturate(${saturate.toFixed(3)})`,
-            // Длительность обнуляется глобальным reduced-motion-сбросом
-            // (globals.css) — не ветвим по reduce, чтобы не было SSR-mismatch
-            transition: "filter 180ms ease-out",
+            // Непрерывно, без `transition`: догонять больше нечего — значение
+            // само меняется каждый кадр вместе с позицией шторки. Прежний
+            // переход 180 мс существовал ТОЛЬКО чтобы сгладить прыжок между
+            // ступенями, и вместе со ступенями он ушёл.
+            filter: filterMV,
             willChange: "filter",
             ...(depthMask
               ? { maskImage: DEPTH_MASK, WebkitMaskImage: DEPTH_MASK }
