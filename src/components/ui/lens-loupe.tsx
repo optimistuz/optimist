@@ -85,7 +85,10 @@ export function LensLoupe({ src }: { src: string }) {
       onPointerUp={(e) => write(e, { down: false })}
       onPointerCancel={(e) => write(e, { down: false, inside: false })}
       // Тач-скролл по карточке не отнимаем: долгое нажатие ловится по времени.
-      style={{ touchAction: "pan-y" }}
+      // ⚠️ `pinch-zoom` обязателен. До этапа 5 оверлея на таче не было вовсе,
+      // и один `pan-y` отобрал бы масштабирование страницы на трёх карточках,
+      // занимающих почти весь экран, — регрессия доступности (нашёл `fizik`).
+      style={{ touchAction: "pan-y pinch-zoom" }}
     >
       {armed && <LensImpl src={src} probe={probe} />}
     </div>

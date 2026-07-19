@@ -171,18 +171,29 @@ export function GLCanvas({
         : null;
     if (io) io.observe(host);
 
+    // ⚠️ РАЗМЕРОМ ВЛАДЕЕТ ТОЛЬКО RENDERER. Соблазн выставить `canvas.width` и
+    // `gl.viewport` руками разбивает кадр: `Renderer.render()` КАЖДЫМ кадром
+    // переустанавливает viewport в `this.width * this.dpr`
+    // (node_modules/ogl/src/core/Renderer.js:359) и затирает ручной вызов.
+    // Итог на DPR 2 — стекло рисуется в нижнюю-левую четверть канваса, вдвое
+    // мельче обода, то есть на КАЖДОМ реальном телефоне и ретине; при шаге
+    // клапана вниз оно, наоборот, разъезжается наружу. Поймал `fizik`
+    // замером `gl.getParameter(gl.VIEWPORT)` против `canvas.width` — моя
+    // собственная проба этого не видела, потому что headless идёт с DPR 1.
+    let lastW = -1;
+    let lastH = -1;
+    let lastRatio = -1;
     const ensureSize = () => {
       const w = host.clientWidth;
       const h = host.clientHeight;
       const ratio = rs.pixelRatio();
-      const nw = Math.max(1, Math.round(w * ratio));
-      const nh = Math.max(1, Math.round(h * ratio));
-      if (canvas.width !== nw || canvas.height !== nh) {
-        renderer.setSize(w, h);
-        canvas.width = nw;
-        canvas.height = nh;
-        gl.viewport(0, 0, nw, nh);
+      if (w !== lastW || h !== lastH || ratio !== lastRatio) {
+        renderer.dpr = ratio; // клапан живёт ЗДЕСЬ, а не в ручном viewport
+        renderer.setSize(w, h); // сам выставит буфер, стиль и viewport
         scene?.resize?.(w, h);
+        lastW = w;
+        lastH = h;
+        lastRatio = ratio;
       }
       bw = w;
       bh = h;

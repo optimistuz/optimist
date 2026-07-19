@@ -47,11 +47,20 @@ function detectWebGL(): boolean {
   if (webglSupported !== null) return webglSupported;
   try {
     const c = document.createElement("canvas");
-    webglSupported = !!(
+    const ctx =
       c.getContext("webgl2") ||
       c.getContext("webgl") ||
-      c.getContext("experimental-webgl")
-    );
+      c.getContext("experimental-webgl");
+    webglSupported = !!ctx;
+    // ⚠️ Отпускаем контекст СРАЗУ. Проба его не рисует, но браузер держит
+    // ограниченное число живых WebGL-контекстов на вкладку, и забытый
+    // «пробный» отнимал бы место у самой линзы и у шторки этапа 6
+    // (нашёл `fizik`: после двух карточек на странице жило 3 контекста).
+    if (ctx && "getExtension" in ctx) {
+      (ctx as WebGLRenderingContext)
+        .getExtension("WEBGL_lose_context")
+        ?.loseContext();
+    }
   } catch {
     webglSupported = false;
   }
@@ -87,11 +96,20 @@ export function LensImpl({
     const surface = hostRef.current?.parentElement; // поверхность жестов — триггер
     if (!surface) return;
     const onWheel = (e: WheelEvent) => {
-      if (stateRef.current.opacity <= 0.01) return; // линзы нет — не мешаем скроллу
+      const s = stateRef.current;
+      if (s.opacity <= 0.01) return; // линзы нет — не мешаем скроллу
+
+      // ⚠️ НА ПРЕДЕЛЕ ЗУМА КОЛЕСО ВОЗВРАЩАЕТСЯ СТРАНИЦЕ. Карточки крупные,
+      // и «залипший» скролл под курсором — худшее, что можно сделать с
+      // прокруткой. Докрутил линзу до упора и крутишь дальше в ту же
+      // сторону — листается страница, как и ожидает человек.
+      const atMax = s.zoom >= ZOOM_MAX - 0.001 && e.deltaY < 0;
+      const atMin = s.zoom <= ZOOM_MIN + 0.001 && e.deltaY > 0;
+      if (atMax || atMin) return;
+
       // preventDefault точечно и ТОЛЬКО при живой линзе; ради этого слушатель
       // и не passive — но лишь на этом элементе, а не на документе.
       e.preventDefault();
-      const s = stateRef.current;
       s.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, s.zoom - e.deltaY * 0.0016));
     };
     surface.addEventListener("wheel", onWheel, { passive: false });
@@ -106,12 +124,11 @@ export function LensImpl({
 
     const surface = host.parentElement;
     let pressActive = false;
+    let lenisBlocked = false;
 
     const tick = () => {
       const p = probe.current;
       const s = stateRef.current;
-      const rect = surface?.getBoundingClientRect();
-      if (!rect || !rect.width || !rect.height) return;
 
       // Долгое нажатие: считаем по времени, а не таймером (см. шапку).
       if (p.touch) {
@@ -123,6 +140,16 @@ export function LensImpl({
       }
 
       const wanted = p.touch ? pressActive : p.inside;
+
+      // ⚠️ РАННИЙ ВЫХОД ДО getBoundingClientRect. Линзы нет и не просят —
+      // работы тоже нет. Без этой отсечки тик, однажды подписавшись, навсегда
+      // дёргал принудительный layout КАЖДЫЙ кадр, по одному на каждую
+      // тронутую карточку (нашёл `fizik`): компонент не размонтируется, а
+      // `armed` не сбрасывается.
+      if (!wanted && s.opacity === 0) return;
+
+      const rect = surface?.getBoundingClientRect();
+      if (!rect || !rect.width || !rect.height) return;
       // Проявление/растворение — плавно, чтобы линза «наводилась», а не мигала.
       s.opacity += ((wanted ? 1 : 0) - s.opacity) * FADE;
       if (s.opacity < 0.004) s.opacity = 0;
@@ -133,6 +160,20 @@ export function LensImpl({
       const y = p.y - rect.top - lift;
       s.cx = x / rect.width;
       s.cy = y / rect.height;
+
+      // ⚠️ ОТБИРАЕМ КОЛЕСО У LENIS, ПОКА ЛИНЗА ЖИВА. Одного `preventDefault`
+      // мало: Lenis слушает `wheel` на window с `passive:false` и НЕ смотрит
+      // на `defaultPrevented` — он крутил свой виртуальный скролл, курсор
+      // уезжал с карточки, линза гасла, и зум колесом не работал вовсе
+      // (нашёл `fizik`: шесть колёсиков прокручивали страницу ровно так же,
+      // как над пустым фоном). Штатный механизм Lenis — этот атрибут; ставим
+      // его ТОЛЬКО на живой линзе, иначе скролл залип бы над карточками.
+      const live = s.opacity > 0.01;
+      if (surface && live !== lenisBlocked) {
+        lenisBlocked = live;
+        if (live) surface.setAttribute("data-lenis-prevent-wheel", "");
+        else surface.removeAttribute("data-lenis-prevent-wheel");
+      }
 
       const ring = ringRef.current;
       if (ring) {
@@ -150,7 +191,12 @@ export function LensImpl({
     };
 
     ticker.addTick(tick);
-    return () => ticker.removeTick(tick);
+    return () => {
+      ticker.removeTick(tick);
+      // Атрибут не имеет права пережить компонент: иначе Lenis навсегда
+      // отдаст колесо над этой карточкой браузеру.
+      surface?.removeAttribute("data-lenis-prevent-wheel");
+    };
   }, [ticker, probe]);
 
   return (
