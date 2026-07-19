@@ -60,6 +60,7 @@ export function GLCanvas({
   className = "",
   minScale = 0.5,
   active = true,
+  shouldRender,
   onContextLost,
 }: {
   /** Сборка сцены. Вызывается ОДИН раз, когда контекст поднят. */
@@ -69,6 +70,15 @@ export function GLCanvas({
   minScale?: number;
   /** Внешний выключатель: false — канвас спит (не рисует). */
   active?: boolean;
+  /**
+   * Есть ли что рисовать ПРЯМО СЕЙЧАС. Читается каждый кадр и обязан быть
+   * дешёвым (проверка числа в ref, не запрос к DOM).
+   *
+   * ⚠️ Без него петля трогала layout (`host.clientWidth` в `ensureSize`) и
+   * чистила кадр даже при полностью растворённом эффекте — по разу на
+   * каждый живой канвас (нашёл `hronometrist`).
+   */
+  shouldRender?: () => boolean;
   /** Контекст потерян или WebGL недоступен — хозяин уходит в фолбэк. */
   onContextLost?: () => void;
 }) {
@@ -86,6 +96,8 @@ export function GLCanvas({
   setupRef.current = setup;
   const lostRef = useRef(onContextLost);
   lostRef.current = onContextLost;
+  const renderGateRef = useRef(shouldRender);
+  renderGateRef.current = shouldRender;
 
   const markLost = useCallback(() => {
     lostRef.current?.();
@@ -204,6 +216,9 @@ export function GLCanvas({
       if (lost || !activeRef.current) return;
       if (typeof document !== "undefined" && document.hidden) return;
       if (!inView) return;
+      // Рисовать нечего — не трогаем ни layout, ни GL. Проверка стоит ДО
+      // `ensureSize`, иначе гейт бессмысленен: layout читался бы всё равно.
+      if (renderGateRef.current && !renderGateRef.current()) return;
 
       // Клапан: датчик — стоимость ПРОШЛОГО кадра (см. контракт в шапке).
       rs.sample(lastCost, time);

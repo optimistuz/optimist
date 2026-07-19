@@ -175,16 +175,22 @@ export function LensImpl({
         else surface.removeAttribute("data-lenis-prevent-wheel");
       }
 
+      // ⚠️ `will-change` снимаем при растворении: иначе композиторный слой
+      // держится вечно, даже когда линзы нет (нашёл `hronometrist`).
+      const wc = live ? "transform" : "auto";
+
       const ring = ringRef.current;
       if (ring) {
         ring.style.transform = `translate(${x - SIZE / 2}px, ${y - SIZE / 2}px)`;
         ring.style.opacity = String(s.opacity);
+        if (ring.style.willChange !== wc) ring.style.willChange = wc;
       }
       const css = cssRef.current;
       if (css) {
         const z = s.zoom;
         css.style.transform = `translate(${x - SIZE / 2}px, ${y - SIZE / 2}px)`;
         css.style.opacity = String(s.opacity);
+        if (css.style.willChange !== wc) css.style.willChange = wc;
         css.style.backgroundSize = `${rect.width * z}px ${rect.height * z}px`;
         css.style.backgroundPosition = `${-(x * z - SIZE / 2)}px ${-(y * z - SIZE / 2)}px`;
       }
@@ -207,7 +213,7 @@ export function LensImpl({
         /* Фолбэк: плоское увеличение без рефракции — но рабочее. */
         <div
           ref={cssRef}
-          className="pointer-events-none absolute left-0 top-0 rounded-full border border-white/60 will-change-transform"
+          className="pointer-events-none absolute left-0 top-0 rounded-full border border-white/60"
           style={{
             width: SIZE,
             height: SIZE,
@@ -225,7 +231,7 @@ export function LensImpl({
           и проверяются глазами в приёмке. */}
       <div
         ref={ringRef}
-        className="pointer-events-none absolute left-0 top-0 will-change-transform"
+        className="pointer-events-none absolute left-0 top-0"
         style={{ width: SIZE, height: SIZE, opacity: 0 }}
       >
         <svg viewBox="0 0 196 196" className="h-full w-full" fill="none">

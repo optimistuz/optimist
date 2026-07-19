@@ -119,15 +119,33 @@ export function LensGL({
         generateMipmaps: false, // фото не уменьшается — мипы только память едят
       });
 
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.decoding = "async";
-      img.onload = () => {
+      // ⚠️ БЕРЁМ УЖЕ ДЕКОДИРОВАННЫЙ КАДР КАРТОЧКИ, а не качаем свой.
+      // Карточка отдаётся через `next/image` (`/_next/image?url=…&w=…`, WebP),
+      // а текстура тянула сырой `.jpg` — ДРУГОЙ URL: +123 КБ сети и +6 МБ
+      // декода на каждую карточку, и всё это по жесту пользователя
+      // (нашёл `hronometrist`). Тот же элемент — ноль лишней сети и та же
+      // картинка, что человек видит вокруг стекла.
+      const card = gl.canvas instanceof HTMLCanvasElement ? gl.canvas.closest("a") : null;
+      const rendered = card?.querySelector("img") ?? null;
+
+      let img: HTMLImageElement;
+      if (rendered && rendered.complete && rendered.naturalWidth > 0) {
+        img = rendered;
         texture.image = img;
         texture.needsUpdate = true;
-      };
-      img.onerror = () => failRef.current?.();
-      img.src = image;
+      } else {
+        // Кадр карточки ещё не дошёл (или его нет) — грузим сами, но тем же
+        // адресом, каким его отдаёт разметка, если он известен.
+        img = new Image();
+        img.crossOrigin = "anonymous";
+        img.decoding = "async";
+        img.onload = () => {
+          texture.image = img;
+          texture.needsUpdate = true;
+        };
+        img.onerror = () => failRef.current?.();
+        img.src = rendered?.currentSrc || rendered?.src || image;
+      }
 
       const geometry = new Triangle(gl); // полноэкранный треугольник дешевле квада
       const program = new Program(gl, {
@@ -170,8 +188,12 @@ export function LensGL({
         },
         dispose: () => {
           programRef.current = null;
-          img.onload = null;
-          img.onerror = null;
+          // Колбэки снимаем только со СВОЕГО изображения: элемент карточки
+          // нам не принадлежит, и трогать его обработчики нельзя.
+          if (img !== rendered) {
+            img.onload = null;
+            img.onerror = null;
+          }
         },
       };
     },
@@ -183,6 +205,8 @@ export function LensGL({
   return (
     <GLCanvas
       setup={setup}
+      // Линза растворена — кадр не нужен вовсе (ни layout, ни GL).
+      shouldRender={() => stateRef.current.opacity > 0.001}
       onContextLost={onFail}
       className="pointer-events-none absolute inset-0 z-20"
       // Пол выше общего 0,5: линза — крупный оптический эффект во весь
