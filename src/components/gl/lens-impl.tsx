@@ -3,7 +3,11 @@
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import { useTicker } from "@/components/smooth-scroll";
-import type { LensState, PointerProbe } from "@/components/gl/lens-types";
+import type {
+  LensSource,
+  LensState,
+  PointerProbe,
+} from "@/components/gl/lens-types";
 
 /* ------------------------------------------------------------------
    ЛИНЗА — вся логика (этап 5, шаги 4–6). Грузится ЛЕНИВО, по первому
@@ -68,11 +72,13 @@ function detectWebGL(): boolean {
 }
 
 export function LensImpl({
-  src,
+  source,
   probe,
+  refreshKey,
 }: {
-  src: string;
+  source: LensSource;
   probe: React.MutableRefObject<PointerProbe>;
+  refreshKey?: string | number;
 }) {
   const [gl, setGl] = useState<boolean | null>(null);
   const ticker = useTicker();
@@ -208,9 +214,18 @@ export function LensImpl({
   return (
     <div ref={hostRef} className="pointer-events-none absolute inset-0">
       {gl === true ? (
-        <LensGL src={src} stateRef={stateRef} onFail={() => setGl(false)} />
-      ) : gl === false ? (
-        /* Фолбэк: плоское увеличение без рефракции — но рабочее. */
+        <LensGL
+          source={source}
+          stateRef={stateRef}
+          refreshKey={refreshKey}
+          onFail={() => setGl(false)}
+        />
+      ) : gl === false && source.kind === "photo" ? (
+        /* Фолбэк: плоское увеличение без рефракции — но рабочее.
+           ⚠️ Только для ФОТО. Чертёж Мастерской CSS-лупой не показать: его
+           «картинка» существует лишь как снимок SVG, а снимок делает WebGL-
+           ветка. Без WebGL чертёж остаётся с прежней proximity-подсветкой —
+           это честная деградация, а не пустое стекло. */
         <div
           ref={cssRef}
           className="pointer-events-none absolute left-0 top-0 rounded-full border border-white/60"
@@ -218,7 +233,7 @@ export function LensImpl({
             width: SIZE,
             height: SIZE,
             opacity: 0,
-            backgroundImage: `url(${src})`,
+            backgroundImage: `url(${source.src})`,
             backgroundRepeat: "no-repeat",
             boxShadow:
               "0 16px 44px -14px rgba(13,13,13,0.55), inset 0 1px 0 rgba(255,255,255,0.55), inset 0 0 0 1px rgba(13,13,13,0.06)",

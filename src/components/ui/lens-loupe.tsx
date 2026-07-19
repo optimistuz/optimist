@@ -33,7 +33,18 @@ const LensImpl = dynamic(
   { ssr: false }
 );
 
-export function LensLoupe({ src }: { src: string }) {
+export function LensLoupe({
+  src,
+  svgRef,
+  refreshKey,
+}: {
+  /** Фото карточки Collections. */
+  src?: string;
+  /** Чертёж Мастерской: линза снимает живой SVG (шаг 7). */
+  svgRef?: React.RefObject<SVGSVGElement | null>;
+  /** Смена — пересъёмка снимка чертежа (выбор детали). */
+  refreshKey?: string | number;
+}) {
   const { full } = useOpticalCapability();
   const [armed, setArmed] = useState(false);
   const armedRef = useRef(false);
@@ -90,7 +101,17 @@ export function LensLoupe({ src }: { src: string }) {
       // занимающих почти весь экран, — регрессия доступности (нашёл `fizik`).
       style={{ touchAction: "pan-y pinch-zoom" }}
     >
-      {armed && <LensImpl src={src} probe={probe} />}
+      {armed && (svgRef?.current || src) && (
+        <LensImpl
+          source={
+            svgRef?.current
+              ? { kind: "svg", el: svgRef.current }
+              : { kind: "photo", src: src as string }
+          }
+          probe={probe}
+          refreshKey={refreshKey}
+        />
+      )}
     </div>
   );
 }

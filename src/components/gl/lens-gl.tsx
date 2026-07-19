@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Mesh, Program, Texture, Triangle } from "ogl";
 import { GLCanvas, type GLScene, type GLSetupArgs } from "@/components/gl/gl-canvas";
-import type { LensState } from "@/components/gl/lens-types";
+import type { LensSource, LensState } from "@/components/gl/lens-types";
+import { svgToCanvas } from "@/components/gl/svg-texture";
 
 /* ------------------------------------------------------------------
    ЧЕСТНАЯ ЛИНЗА (этап 5, шаги 2–4) — рефракция, а не «увеличенная копия».
@@ -96,28 +97,118 @@ void main() {
 }
 `;
 
+/** Программа линзы — одна на оба источника текстуры. */
+function makeProgram(gl: GLSetupArgs["gl"], texture: Texture) {
+  return new Program(gl, {
+    vertex: VERT,
+    fragment: FRAG,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    uniforms: {
+      tMap: { value: texture },
+      uCenter: { value: [0.5, 0.5] },
+      uSize: { value: [1, 1] },
+      uRadius: { value: 98 },
+      uZoom: { value: 1.85 },
+      uOpacity: { value: 0 },
+      // Пиксели НА ЭКРАНЕ (шейдер делит на увеличение). Бюджет ≤2px —
+      // «субтильная дисперсия» plan.md; 1,6 оставляет запас на кромке.
+      uDispersion: { value: 1.6 },
+    },
+  });
+}
+
+/** Кадр линзы — тоже общий: разница между источниками только в текстуре. */
+function makeDraw(
+  renderer: GLSetupArgs["renderer"],
+  program: Program,
+  mesh: Mesh,
+  stateRef: React.MutableRefObject<LensState>
+): GLScene["draw"] {
+  return ({ width, height }) => {
+    const s = stateRef.current;
+    // Линза не проявлена — не тратим кадр вовсе.
+    if (s.opacity <= 0.001) {
+      renderer.gl.clearColor(0, 0, 0, 0);
+      renderer.gl.clear(renderer.gl.COLOR_BUFFER_BIT);
+      return;
+    }
+    program.uniforms.uCenter.value = [s.cx, s.cy];
+    program.uniforms.uSize.value = [width, height];
+    program.uniforms.uRadius.value = s.radius;
+    program.uniforms.uZoom.value = s.zoom;
+    program.uniforms.uOpacity.value = s.opacity;
+    renderer.render({ scene: mesh });
+  };
+}
+
 export function LensGL({
-  src,
+  source,
   stateRef,
   onFail,
+  refreshKey,
 }: {
-  src: string;
+  /** Что показывает стекло: фото карточки или снимок чертежа. */
+  source: LensSource;
   /** Состояние линзы пишет ХОЗЯИН (курсор/палец) — без React-ре-рендеров. */
   stateRef: React.MutableRefObject<LensState>;
   onFail?: () => void;
+  /** Смена значения пересобирает снимок SVG (выбор детали). */
+  refreshKey?: string | number;
 }) {
   const programRef = useRef<Program | null>(null);
   const failRef = useRef(onFail);
   failRef.current = onFail;
+  const sourceRef = useRef(source);
+  sourceRef.current = source;
+  /** Пересъёмка снимка чертежа. Живёт, пока жива сцена SVG-ветки. */
+  const shootRef = useRef<(() => void) | null>(null);
 
-  // Фото карточки — единственный источник текстуры.
-  const image = useMemo(() => src, [src]);
+  // Идентичность источника: смена ПЕРЕСОБИРАЕТ сцену, поэтому в зависимость
+  // идёт стабильный ключ, а не сам объект (он новый на каждый рендер).
+  const key = useMemo(
+    () => (source.kind === "photo" ? `photo:${source.src}` : "svg"),
+    [source]
+  );
 
   const setup = useCallback(
     ({ renderer, gl }: GLSetupArgs): GLScene => {
       const texture = new Texture(gl, {
         generateMipmaps: false, // фото не уменьшается — мипы только память едят
       });
+      const current = sourceRef.current;
+
+      // ---- Чертёж Мастерской: офскрин-снимок живого SVG (шаг 7) ----
+      if (current.kind === "svg") {
+        let cancelled = false;
+        const shoot = () => {
+          const r = current.el.getBoundingClientRect();
+          svgToCanvas(current.el, r.width, r.height, 1).then((canvas) => {
+            if (cancelled) return;
+            if (!canvas) {
+              failRef.current?.(); // снимок не удался — честный фолбэк
+              return;
+            }
+            texture.image = canvas;
+            texture.needsUpdate = true;
+          });
+        };
+        shoot();
+        shootRef.current = shoot;
+
+        const program = makeProgram(gl, texture);
+        programRef.current = program;
+        const mesh = new Mesh(gl, { geometry: new Triangle(gl), program });
+        return {
+          draw: makeDraw(renderer, program, mesh, stateRef),
+          dispose: () => {
+            cancelled = true;
+            programRef.current = null;
+            shootRef.current = null;
+          },
+        };
+      }
 
       // ⚠️ БЕРЁМ УЖЕ ДЕКОДИРОВАННЫЙ КАДР КАРТОЧКИ, а не качаем свой.
       // Карточка отдаётся через `next/image` (`/_next/image?url=…&w=…`, WebP),
@@ -144,48 +235,17 @@ export function LensGL({
           texture.needsUpdate = true;
         };
         img.onerror = () => failRef.current?.();
-        img.src = rendered?.currentSrc || rendered?.src || image;
+        img.src = rendered?.currentSrc || rendered?.src || current.src;
       }
 
       const geometry = new Triangle(gl); // полноэкранный треугольник дешевле квада
-      const program = new Program(gl, {
-        vertex: VERT,
-        fragment: FRAG,
-        transparent: true,
-        depthTest: false,
-        depthWrite: false,
-        uniforms: {
-          tMap: { value: texture },
-          uCenter: { value: [0.5, 0.5] },
-          uSize: { value: [1, 1] },
-          uRadius: { value: 98 },
-          uZoom: { value: 1.85 },
-          uOpacity: { value: 0 },
-          // Пиксели НА ЭКРАНЕ (шейдер делит на увеличение). Бюджет ≤2px —
-          // «субтильная дисперсия» plan.md; 1,6 оставляет запас на кромке.
-          uDispersion: { value: 1.6 },
-        },
-      });
+      const program = makeProgram(gl, texture);
       programRef.current = program;
 
       const mesh = new Mesh(gl, { geometry, program });
 
       return {
-        draw: ({ width, height }) => {
-          const s = stateRef.current;
-          // Линза не проявлена — не тратим кадр вовсе.
-          if (s.opacity <= 0.001) {
-            renderer.gl.clearColor(0, 0, 0, 0);
-            renderer.gl.clear(renderer.gl.COLOR_BUFFER_BIT);
-            return;
-          }
-          program.uniforms.uCenter.value = [s.cx, s.cy];
-          program.uniforms.uSize.value = [width, height];
-          program.uniforms.uRadius.value = s.radius;
-          program.uniforms.uZoom.value = s.zoom;
-          program.uniforms.uOpacity.value = s.opacity;
-          renderer.render({ scene: mesh });
-        },
+        draw: makeDraw(renderer, program, mesh, stateRef),
         dispose: () => {
           programRef.current = null;
           // Колбэки снимаем только со СВОЕГО изображения: элемент карточки
@@ -197,10 +257,22 @@ export function LensGL({
         },
       };
     },
-    [image, stateRef]
+    // `key` в теле не читается (источник берётся из ref, чтобы объект-пропс
+    // не пересобирал сцену каждый рендер) — но он ОБЯЗАН быть в зависимостях:
+    // смена источника должна пересобрать сцену целиком, иначе стекло покажет
+    // прежнюю текстуру. Правило этого не видит; убрать зависимость — сломать.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [key, stateRef]
   );
 
   useEffect(() => () => void (programRef.current = null), []);
+
+  // Выбрали другую деталь — чертёж изменился, снимок устарел. Пересъёмка идёт
+  // ПО СОБЫТИЮ, а не каждый кадр: сериализация SVG слишком дорога для петли
+  // (plan.md, этап 5 шаг 7 — снимок «статичен»).
+  useEffect(() => {
+    shootRef.current?.();
+  }, [refreshKey]);
 
   return (
     <GLCanvas

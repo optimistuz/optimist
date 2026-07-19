@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   AnimatePresence,
   easeInOut,
@@ -11,12 +11,12 @@ import {
   type Variants,
 } from "motion/react";
 import { useReduceAfterMount } from "@/lib/use-reduce-after-mount";
-import { useOpticalCapability } from "@/lib/use-optical-capability";
 import { Section } from "@/components/ui/section";
 import { Container } from "@/components/ui/container";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import { Reveal, RevealLines } from "@/components/ui/reveal";
 import { MotionFocus } from "@/components/ui/motion-focus";
+import { LensLoupe } from "@/components/ui/lens-loupe";
 import { cn } from "@/lib/cn";
 import { anatomy } from "@/content/home";
 import { VIEWPORT } from "@/lib/motion";
@@ -57,18 +57,15 @@ const STROKE_ACTIVE_DELTA = 0.5;
     линии ободка; у силуэта ободков ореол щедрый. */
 const PART_HIT = [18, 8, 14, 14, 14, 14, 16];
 
-/** Центроиды деталей (единицы чертежа ДО масштаба) — для мягкой подсветки
-    ближайшей детали под курсором (Блок 8.2: подсказка, не выбор). */
-const PART_CENTROID: [number, number][] = [
-  [324, 112], // 01 Ободки
-  [324, 112], // 02 Линзы
-  [324, 84], // 03 Мост
-  [324, 133], // 04 Носоупоры
-  [261, 141], // 05 Шарниры
-  [335, 258], // 06 Дужки
-  [567, 286], // 07 Заушники
-];
-const PROXIMITY_PX = 80; // порог близости в экранных px
+/* ⚠️ ЦЕНТРОИДЫ ДЕТАЛЕЙ И ПОРОГ БЛИЗОСТИ УДАЛЕНЫ (этап 5, шаг 7).
+   Proximity-подсветка ближайшей детали под курсором ЗАМЕНЕНА линзой — так
+   прямо предписывает plan.md, и того же требует канон «один подписной
+   эффект на блок»: два указателя на одном чертеже спорят друг с другом.
+   Подсветка была desktop-only (`pointer:fine`), поэтому мобильный опыт
+   не пострадал; тач-подсказка от точки касания придёт этапом 9.
+   ⚠️ Следствие, которое надо знать: на десктопе БЕЗ WebGL чертёж остаётся
+   без подсказки вовсе — CSS-лупа его показать не может (её «картинка» —
+   снимок SVG, а снимок делает WebGL-ветка). */
 
 /** ex/ey — вектор разнесённой сборки: куда деталь уезжает в разобранном
     виде (в единицах viewBox, вдоль «оси сборки» своего узла). Сборку
@@ -297,7 +294,6 @@ function PartGroup({
   handlers,
   celebrate = false,
   celebrating = false,
-  near = false,
 }: {
   shapes: Shape[];
   index: number;
@@ -308,7 +304,6 @@ function PartGroup({
   handlers: PartHandlers;
   celebrate?: boolean;
   celebrating?: boolean;
-  near?: boolean;
 }) {
   const t = index / (total - 1); // 0 у детали 01 … 1 у детали 07
   // Окна согласованы с видимостью чертежа: целиком он на экране примерно
@@ -324,21 +319,15 @@ function PartGroup({
   const sel = active === index;
   const dim = active !== null && !sel;
   const litBrand = sel || celebrate;
-  const proximity = near && !sel && !celebrate; // подсказка близости
   return (
     <>
       <g
         stroke="currentColor"
         pointerEvents="none"
-        className={
-          litBrand ? "text-brand" : proximity ? "text-ink/80" : "text-ink"
-        }
+        className={litBrand ? "text-brand" : "text-ink"}
         style={{
           strokeWidth:
-            (PART_STROKE[index] +
-              (sel ? STROKE_ACTIVE_DELTA : 0) +
-              (proximity ? 0.25 : 0)) /
-            DRAW_SCALE,
+            (PART_STROKE[index] + (sel ? STROKE_ACTIVE_DELTA : 0)) / DRAW_SCALE,
           opacity: dim ? 0.25 : 1,
           transition: reduce
             ? undefined
@@ -393,11 +382,12 @@ export default function Anatomy() {
   // скролл-сборка НЕ гейтятся способностью — они живут на всех устройствах
   // (только reduce их выключает), поэтому на мобиле чертёж рисуется и
   // собирается наравне с десктопом (этап 2).
-  const { pointerFine } = useOpticalCapability();
+  // ⚠️ `useOpticalCapability` здесь больше не нужен: он гейтил ТОЛЬКО
+  // proximity-подсветку, а её заменила линза — та ветвится сама, своим
+  // шлюзом. Штрихи и скролл-сборка способностью не гейтились никогда.
   const [celebrate, setCelebrate] = useState(false); // фаза «штрихи в brand»
   const [celebrating, setCelebrating] = useState(false); // окно stagger-задержки
   const [showDone, setShowDone] = useState(false); // строка-награда
-  const [near, setNear] = useState<number | null>(null); // ближайшая деталь
   const viewedRef = useRef<Set<number>>(new Set());
   const celebratedRef = useRef(false);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -450,53 +440,9 @@ export default function Anatomy() {
     },
   });
 
-  // Близость курсора (pointer:fine): подсвечивает ближайшую деталь, не выбирает.
-  // Активная деталь приоритетнее — тогда близость гасим.
-  useEffect(() => {
-    if (!pointerFine || active !== null) {
-      setNear(null);
-      return;
-    }
-    let raf = 0;
-    const onMove = (e: MouseEvent) => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        const el = svgRef.current;
-        if (!el) return;
-        const rect = el.getBoundingClientRect();
-        if (
-          e.clientX < rect.left ||
-          e.clientX > rect.right ||
-          e.clientY < rect.top ||
-          e.clientY > rect.bottom
-        ) {
-          setNear(null);
-          return;
-        }
-        const rawX =
-          (((e.clientX - rect.left) / rect.width) * VB_W - DRAW_TX) / DRAW_SCALE;
-        const rawY =
-          (((e.clientY - rect.top) / rect.height) * VB_H - DRAW_TY) / DRAW_SCALE;
-        const thresh = ((PROXIMITY_PX / rect.width) * VB_W) / DRAW_SCALE;
-        let best = -1;
-        let bestD = Infinity;
-        for (let i = 0; i < PART_CENTROID.length; i++) {
-          const d = Math.hypot(rawX - PART_CENTROID[i][0], rawY - PART_CENTROID[i][1]);
-          if (d < bestD) {
-            bestD = d;
-            best = i;
-          }
-        }
-        setNear(best >= 0 && bestD <= thresh ? best : null);
-      });
-    };
-    window.addEventListener("mousemove", onMove, { passive: true });
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, [pointerFine, active]);
+  /* Петля близости курсора УДАЛЕНА (этап 5, шаг 7): её работу делает линза.
+     Она слушала `mousemove` на window и каждым кадром искала ближайший
+     центроид — теперь этой петли на «/» нет вовсе. */
 
   // ---- Разнесённая сборка: прогресс скролла сквозь чертёж ----------
   // 0 — обёртка чертежа у нижней кромки вьюпорта, 1 — у верхней.
@@ -594,7 +540,6 @@ export default function Anatomy() {
                     handlers={labelHandlers(i)}
                     celebrate={celebrate}
                     celebrating={celebrating}
-                    near={active === null && near === i}
                   />
                 ))}
               </g>
@@ -632,6 +577,14 @@ export default function Anatomy() {
                 </motion.g>
               )}
             </svg>
+
+            {/* ЛИНЗА ПО ЧЕРТЕЖУ (этап 5, шаг 7) — тот же подписной эффект,
+                что на карточках Collections. Текстура — офскрин-снимок ЭТОГО
+                ЖЕ svg; пересъёмка по выбору детали (`refreshKey`), а не
+                каждый кадр: сериализация SVG для петли слишком дорога.
+                Заменяет собой proximity-подсветку (см. комментарий у
+                удалённых центроидов). */}
+            <LensLoupe svgRef={svgRef} refreshKey={active ?? -1} />
 
             {/* Подписи-выноски: каталожные номера, музейная спецификация.
                 Обёртка гасит их вместе с выносками, пока чертёж разобран
