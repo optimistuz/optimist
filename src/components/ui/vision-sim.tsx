@@ -1,160 +1,45 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import {
-  AnimatePresence,
-  animate,
-  motion,
-  useInView,
-  useMotionValue,
-  useMotionValueEvent,
-  useReducedMotion,
-  useTransform,
-  type AnimationPlaybackControls,
-} from "motion/react";
+import { useEffect, useRef, useState } from "react";
 import { Photo } from "@/components/ui/photo";
 import { cn } from "@/lib/cn";
-import { haptic } from "@/lib/haptics";
-import type { PhotoSlot } from "@/content/photos";
+import { useReduceAfterMount } from "@/lib/use-reduce-after-mount";
+import {
+  capsuleSoft,
+  formatValueText,
+  stateKeyFor,
+  type StateKey,
+  type VisionSimProps,
+} from "@/components/ui/vision-sim-types";
 
 /* ------------------------------------------------------------------
-   Калибровка (физика, не магия).
-   Пятно расфокуса на сетчатке растёт линейно с дефокусом, поэтому
-   blur линеен по диоптриям и пропорционален ширине кадра — телефон
-   и десктоп деградируют одинаково ОТНОСИТЕЛЬНО кадра:
-   B(px) = (|D| / maxDiopters) × blurCoeff × ширина контейнера, кламп ≤ 18px.
-   Улица (max 6, coeff 0.013) при 1200px: −1 → ~2,6px, −3 → ~7,8px,
-   −6 → ~15,6px; при 390px: −6 → ~5px.
+   СИМУЛЯТОР ДЕФЕКТА ЗРЕНИЯ — ОБОЛОЧКА (этап 6, разрез).
+
+   Здесь ТОЛЬКО разметка, которая обязана быть в HTML:
+   · кадр настоящим `<img>` — канон требует, чтобы LCP-элементом был img,
+     а не canvas: иначе клиент на LTE видит пустую коробку там, где
+     обещан подписной момент;
+   · зарезервированная пропорция контейнера — без неё секция схлопнулась
+     бы в ноль и прыгнула при гидрации (CLS — метрика реестра);
+   · угловые подписи и подпись состояния — контент;
+   · ARIA-каркас ползунка в ОДНОМ экземпляре.
+
+   Машинерия (перетаскивание, клавиатура, motion-значения, слой
+   расфокуса на Kawase) уезжает в `vision-sim-live.tsx` и грузится
+   лениво — она и весит. Причина разреза: `vision-sim` целиком сидел
+   в критическом пути «/», а бюджет главной пробит.
+
+   ⚠️ Ползунок НЕ дублируется: живая часть вешает обработчики и правит
+   `aria-valuenow`/`left` на ЭТОМ узле императивно. Второй `role="slider"`
+   означал бы два ползунка на один кадр для скринридера.
    ------------------------------------------------------------------ */
-/**
- * Слой расфокуса на Kawase — ЛЕНИВО. Статический импорт утащил бы ogl
- * в критический путь «/» (симулятор живёт на главной), а бюджет главной
- * израсходован до байта.
- */
-const VisionBlur = dynamic(
-  () => import("@/components/gl/vision-blur").then((m) => m.VisionBlur),
+
+const VisionSimLive = dynamic(
+  () => import("@/components/ui/vision-sim-live").then((m) => m.VisionSimLive),
   { ssr: false }
 );
 
-/*  ⚠️ ПРОБЫ WebGL ЗДЕСЬ НЕТ, И ЭТО НАМЕРЕННО. Она стоила критическому пути
-    «/» около 200 Б, дублируя такую же функцию в ленивом чанке линзы. Решение
-    проще и дешевле: слой Kawase грузится лениво и САМ сообщает о неудаче
-    (`onFail` — нет WebGL, потерян контекст, не собрался шейдер), а до тех пор
-    и после того работает CSS-ветка. Признак маунта тоже не заводим: `width`
-    от ResizeObserver уже им является. */
-
-/**
- * Потолок CSS-ФОЛБЭКА (px). ⚠️ 22, а не 18: канон прямо называет это число
- * («CSS-фолбэк — потолок 22px», CLAUDE.md). Код держал 18 и расходился
- * с законом — поймано грепом до работы. Основной путь потолка не имеет
- * вовсе: у Kawase честный радиус.
- */
-const BLUR_MAX = 22;
-/** Лёгкая потеря контрастности мира: saturate 1.0 → 0.85 на максимуме. Не усиливать. */
-const SAT_LOSS = 0.15;
-
-/**
- * Маска глубины: у близорукого есть «дальняя точка» — близкие объекты
- * размыты меньше дальних. Низ кадра (близкая земля) сохраняет намёк
- * на резкость — честное дешёвое приближение. Включается параметром
- * depthMask (улица); страница книги вся в ближней зоне — там размытие
- * равномерное и маска не нужна.
- */
-const DEPTH_MASK =
-  "linear-gradient(to top, rgba(0,0,0,0.78) 0%, #000 38%)";
-
-/** Половина ширины капсулы значения: у краёв кадра капсула прижимается,
-    чтобы её не срезал overflow-hidden (линия при этом доезжает до края). */
-const CAPSULE_HALF = 56;
-
-/** Амплитуда приглашающего толчка в процентах ширины — одна ступень
-    улицы (0,5 из 6). Толчок включён только у верхней шторки. */
-const NUDGE_AMP = 8.4;
-
-const clampPos = (v: number) => Math.min(100, Math.max(0, v));
-
-/** Капсула-подложка: подписи читаемы поверх любой фотографии. */
-const capsuleSoft =
-  "rounded-full bg-ink/55 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-paper backdrop-blur-sm";
-
-type SignDisplay = "minus" | "plus";
-
-/** «−2,5 дптр» / «+1,25 дптр» — формат ru-RU, запятая.
-    Минус (близорукость): всегда один знак после запятой — как в рецептах
-    с шагом 0,5. Плюс (дальнозоркость): шаг 0,25, до двух знаков без
-    хвостовых нулей («+0,25», «+0,5», «+3»), знак плюса — явно. */
-const formatCapsule = (abs: number, sign: SignDisplay) =>
-  sign === "minus"
-    ? (abs > 0 ? "−" : "") +
-      abs.toLocaleString("ru-RU", {
-        minimumFractionDigits: 1,
-        maximumFractionDigits: 1,
-      }) +
-      " дптр"
-    : (abs > 0 ? "+" : "") +
-      abs.toLocaleString("ru-RU", { maximumFractionDigits: 2 }) +
-      " дптр";
-
-/** «минус 2,5 диоптрии» / «плюс 1,25 диоптрии» — aria-valuetext со склонением. */
-function formatValueText(abs: number, sign: SignDisplay): string {
-  if (abs === 0) return "0 диоптрий";
-  const num = abs.toLocaleString("ru-RU", { maximumFractionDigits: 2 });
-  const word = !Number.isInteger(abs)
-    ? "диоптрии" // дробные: 0,25 … 5,5
-    : abs === 1
-      ? "диоптрия"
-      : abs <= 4
-        ? "диоптрии"
-        : "диоптрий";
-  return `${sign === "minus" ? "минус" : "плюс"} ${num} ${word}`;
-}
-
-type StateKey = "zero" | "mild" | "moderate";
-
-export type VisionSimProps = {
-  /** Слот фотографии: street (близорукость) / book (дальнозоркость). */
-  slot: PhotoSlot;
-  /** Alt резкой базы; размываемый слой декоративный (alt=""). */
-  photoAlt: string;
-  /** Подпись Placeholder, если слот пуст. */
-  photoLabel?: string;
-  /** Максимум дефекта по модулю: 6 (улица) / 3 (книга). */
-  maxDiopters: number;
-  /** Ступень рецепта: 0,5 (минус) / 0,25 (плюс). */
-  step: number;
-  /** Знак в капсуле и aria: «−2,5 дптр» / «+1,25 дптр». */
-  signDisplay: SignDisplay;
-  /** Доля ширины кадра при максимуме дефекта (улица 0.013, книга 0.010). */
-  blurCoeff: number;
-  /** Маска «близкое резче дальнего» — только улица. */
-  depthMask?: boolean;
-  /** Приглашающий толчок — только верхняя шторка (две — шум). */
-  nudge?: boolean;
-  /** Подсказка у линии, гаснет после первого касания. */
-  hint: string;
-  /** Угловые подписи: слева «Без коррекции», справа «В очках …». */
-  labels: { before: string; after: string };
-  /** Подписи состояний; mildMax — верхняя граница «слабой» степени. */
-  states: { zero: string; mild: string; moderate: string; mildMax: number };
-  /** Старт линии по центру кадра (оба экземпляра — да). */
-  startAtCenter?: boolean;
-  ariaLabel: string;
-  className?: string;
-};
-
-/**
- * Симулятор дефекта зрения в форме шторки — подписной эффект «Оптимиста».
- * Вертикальная линия делит кадр: слева — мир без коррекции, справа —
- * в очках. Позиция линии задаёт силу дефекта СТУПЕНЯМИ step
- * (0 у левого края … maxDiopters у правого): шторка скользит плавно
- * (clip-path, дёшево), а blur пересчитывается только на границах ступеней
- * (transition 180 мс) — пофреймового blur нет, мобильный GPU не страдает.
- *
- * Управление: drag/клик в любом месте кадра (как у прежней шторки),
- * клавиатура на линии: ←/→ — одна ступень, Home/End — 0/максимум.
- * Reduced-motion: без толчка и транзишенов, всё функционально.
- */
 export function VisionSim({
   slot,
   photoAlt,
@@ -168,205 +53,56 @@ export function VisionSim({
   hint,
   labels,
   states,
-  startAtCenter = true,
+  startAtCenter = false,
   ariaLabel,
   className,
 }: VisionSimProps) {
-  const reduce = useReducedMotion();
+  const reduce = useReduceAfterMount();
   const containerRef = useRef<HTMLDivElement>(null);
   const handleRef = useRef<HTMLDivElement>(null);
-  // Первое взаимодействие (читают и гаптика снапа, и отмена толчка)
-  const touchedRef = useRef(false);
-  // Гаптика снапа ступени — через единую точку `lib/haptics.ts` (CLAUDE.md).
-  // Свой inline-вызов здесь держал длительность 6 мс мимо словаря и троттлил
-  // сам себя, не зная о соседних эффектах; теперь и словарь, и окно общие.
-  const buzz = () => haptic("snap", reduce);
 
-  // Внутри компонент живёт в МОДУЛЕ диоптрий (0 … maxDiopters);
-  // знак — вопрос отображения (signDisplay), не математики.
-  const clampAbs = (v: number) => Math.min(maxDiopters, Math.max(0, v));
-  /** Снап к ближайшей ступени — значения только дискретные (13 позиций). */
-  const snapAbs = (v: number) => clampAbs(Math.round(v / step) * step);
+  // Начальная ступень — та же, что возьмёт живая часть: до её загрузки
+  // подпись под кадром обязана быть ПРАВДОЙ, а не заглушкой.
+  const initialAbs = startAtCenter
+    ? Math.min(maxDiopters, Math.round(maxDiopters / 2 / step) * step)
+    : 0;
+  const [stateKey, setStateKey] = useState<StateKey>(
+    stateKeyFor(initialAbs, states.mildMax)
+  );
 
-  // Позиция шторки в процентах (0–100), стартовая — посередине
-  const initialAbs = startAtCenter ? snapAbs(maxDiopters / 2) : 0;
-  const position = useMotionValue(startAtCenter ? 50 : 0);
-  /** Текущая ступень |D| — производная позиции, меняется максимум
-      (maxDiopters/step + 1) раз за полный проход (а не каждый кадр). */
-  const [value, setValue] = useState(initialAbs);
-  const valueRef = useRef(initialAbs);
-  useMotionValueEvent(position, "change", (v) => {
-    const next = snapAbs((maxDiopters * v) / 100);
-    if (next !== valueRef.current) {
-      valueRef.current = next;
-      setValue(next);
-      // Снап ступени → гаптика, только если это взаимодействие (не толчок)
-      if (touchedRef.current) buzz();
-    }
-  });
-
-  /** Kawase не смог (нет WebGL / потерян контекст) — живёт CSS-ветка. */
-  const [glFailed, setGlFailed] = useState(false);
-
-  // Ширина контейнера — для калибровки blur и прижима капсулы у краёв
-  const [width, setWidth] = useState(0);
+  // Машинерию поднимаем, когда кадр подходит к экрану: пока секция далеко,
+  // ни motion, ни ogl не нужны никому.
+  const [live, setLive] = useState(false);
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const update = () => setWidth(el.clientWidth);
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
+    if (typeof IntersectionObserver === "undefined") {
+      setLive(true);
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setLive(true);
+          io.disconnect();
+        }
+      },
+      { rootMargin: "200%" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
   }, []);
 
-  // Шторка: верхний (размытый) слой виден СЛЕВА от линии
-  const clipPath = useTransform(position, (v) => `inset(0 ${100 - v}% 0 0)`);
-  const left = useTransform(position, (v) => `${v}%`);
-  // Капсула едет с линией, у краёв кадра прижимается внутрь
-  const capsuleX = useTransform(position, (v) => {
-    if (!width) return 0;
-    const px = (v / 100) * width;
-    return Math.min(Math.max(px, CAPSULE_HALF), Math.max(CAPSULE_HALF, width - CAPSULE_HALF));
-  });
-
-  /**
-   * ⚠️ ВИЗУАЛЬНЫЙ РАСФОКУС — НЕПРЕРЫВНЫЙ (этап 6, шаг 1).
-   *
-   * Раньше сила размытия бралась из СНАПНУТОГО `value` и догонялась
-   * переходом `filter 180ms`: позиция шторки скользила плавно, а картинка
-   * прыгала ступенями и всегда с запозданием. Зрение так не работает —
-   * расфокус нарастает непрерывно, и симулятор, который обещает честные
-   * −6 дптр, обязан это показывать.
-   *
-   * Что ОСТАЁТСЯ дискретным (и не трогается): снап ПОЗИЦИИ шторки и
-   * вибрация — они на ступенях 0,5 дптр, как и было (`useMotionValueEvent`
-   * выше). Дискретность — у отклика, непрерывность — у картинки.
-   *
-   * Значение живёт в MotionValue, а не в React-состоянии: пересчёт на
-   * каждый кадр через setState перерисовывал бы дерево 60 раз в секунду.
-   */
-  /** GL-ветка жива: контейнер измерен (значит, смонтированы) и Kawase не пал.
-      Отдельного `mounted` не заводим — `width` уже им является. */
-  const glLive = width > 0 && !glFailed;
-
-  const severityMV = useTransform(position, (v) =>
-    clampAbs((maxDiopters * v) / 100) / maxDiopters
-  );
-  const filterMV = useTransform(severityMV, (s) => {
-    const b = Math.min(BLUR_MAX, s * blurCoeff * width);
-    return `blur(${b.toFixed(2)}px) saturate(${(1 - s * SAT_LOSS).toFixed(3)})`;
-  });
-
-  // Подсказка-состояние первого взаимодействия (touchedRef объявлен выше)
-  const [touched, setTouched] = useState(false);
-  const nudgeControls = useRef<AnimationPlaybackControls | null>(null);
-
-  const markTouched = () => {
-    touchedRef.current = true;
-    nudgeControls.current?.stop();
-    if (!touched) setTouched(true);
-  };
-
-  // Приглашающий толчок: секция видна, шторка не тронута — через 1,2 с
-  // линия сама проходит одну ступень и возвращается, один раз
-  const inView = useInView(containerRef, { once: true, margin: "-80px" });
-  useEffect(() => {
-    if (!nudge || !inView || reduce) return;
-    const timer = setTimeout(() => {
-      if (touchedRef.current) return;
-      const from = position.get();
-      const controls = animate(position, from + NUDGE_AMP, {
-        type: "spring",
-        stiffness: 170,
-        damping: 13,
-      });
-      nudgeControls.current = controls;
-      controls.then(() => {
-        if (touchedRef.current) return;
-        nudgeControls.current = animate(position, from, {
-          type: "spring",
-          stiffness: 170,
-          damping: 16,
-        });
-      });
-    }, 1200);
-    return () => {
-      clearTimeout(timer);
-      nudgeControls.current?.stop();
-    };
-  }, [nudge, inView, reduce, position]);
-
-  // ---- Модальность фокуса: красное кольцо — только клавиатуре ------
-  // Браузерная эвристика :focus-visible иногда считает программный
-  // focus() при drag клавиатурным, и кольцо вспыхивало красными
-  // полосами по бокам линии. Модальность ведём сами.
-  const focusFromPointer = useRef(false);
-  const [kbFocus, setKbFocus] = useState(false);
-
-  // ---- Указатель: drag/клик в любом месте кадра --------------------
-  const dragging = useRef(false);
-  const setFromClientX = (clientX: number) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0) return;
-    position.set(clampPos(((clientX - rect.left) / rect.width) * 100));
-  };
-  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    dragging.current = true;
-    markTouched();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    setFromClientX(e.clientX);
-    focusFromPointer.current = true;
-    handleRef.current?.focus({ preventScroll: true });
-    focusFromPointer.current = false;
-    setKbFocus(false); // линия уже была в фокусе — указатель гасит кольцо
-  };
-  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (dragging.current) setFromClientX(e.clientX);
-  };
-  const endDrag = () => {
-    dragging.current = false;
-  };
-
-  // ---- Клавиатура: линия движется по ступеням ----------------------
-  // ←/→ — одна ступень (вправо — к максимуму, по направлению шторки),
-  // ↑/↓ — дубль по ARIA-паттерну слайдера, Home/End — 0/максимум
-  const moveToStep = (abs: number) => {
-    const target = (abs / maxDiopters) * 100;
-    if (reduce) position.set(target);
-    else animate(position, target, { type: "spring", stiffness: 400, damping: 34 });
-  };
-  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    let next: number | null = null;
-    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = value + step;
-    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = value - step;
-    else if (e.key === "Home") next = 0;
-    else if (e.key === "End") next = maxDiopters;
-    if (next === null) return;
-    e.preventDefault();
-    markTouched();
-    setKbFocus(true); // переход на клавиатуру возвращает кольцо
-    moveToStep(clampAbs(next));
-  };
-
-  /** Стандартная классификация степени дефекта; граница «слабой» — mildMax. */
-  const stateKey: StateKey =
-    value === 0 ? "zero" : value <= states.mildMax ? "mild" : "moderate";
-
-  // ARIA-числа — со знаком, как в капсуле: минус живёт в [−max … 0]
-  const ariaNow = signDisplay === "minus" ? -value : value;
+  const startPos = startAtCenter ? 50 : 0;
+  const ariaNow = signDisplay === "minus" ? -initialAbs : initialAbs;
   const ariaMin = signDisplay === "minus" ? -maxDiopters : 0;
   const ariaMax = signDisplay === "minus" ? 0 : maxDiopters;
 
   return (
     <div className={className}>
-      {/* ---- Сцена-шторка: резкая база + размываемый слой слева ---- */}
+      {/* Сцена-шторка: резкая база всегда в HTML, размываемый слой — за живой частью */}
       <div
         ref={containerRef}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
         className="relative aspect-[4/3] cursor-ew-resize select-none overflow-hidden rounded-2xl sm:aspect-[16/9]"
         // pan-y: вертикальный скролл страницы пальцем сохраняется,
         // горизонтальное движение достаётся шторке
@@ -381,64 +117,27 @@ export function VisionSim({
           />
         </div>
 
-        {/* СЛОЙ «БЕЗ КОРРЕКЦИИ» — Kawase (этап 6). Канвас лежит ВНУТРИ
-            overflow-hidden контейнера и absolute, а clip-path шторки и маска
-            глубины кладутся на САМ канвас — тогда скругление углов и обрезка
-            работают сами. Грузится лениво: пока секция далеко, ogl не нужен.
-            Без WebGL остаётся CSS-ветка ниже — рабочий эффект, не заглушка. */}
-        {glLive && (
-          <VisionBlur
-            hostRef={containerRef}
-            severity={severityMV}
+        {live && (
+          <VisionSimLive
+            slot={slot}
+            maxDiopters={maxDiopters}
+            step={step}
+            signDisplay={signDisplay}
             blurCoeff={blurCoeff}
-            satLoss={SAT_LOSS}
-            onFail={() => setGlFailed(true)}
-            clip={clipPath}
-            canvasStyle={
-              depthMask
-                ? { maskImage: DEPTH_MASK, WebkitMaskImage: DEPTH_MASK }
-                : undefined
-            }
+            depthMask={depthMask}
+            nudge={nudge}
+            hint={hint}
+            states={states}
+            startAtCenter={startAtCenter}
+            reduce={!!reduce}
+            hostRef={containerRef}
+            handleRef={handleRef}
+            onStateKey={setStateKey}
           />
         )}
 
-        {/* CSS-ФОЛБЭК «без коррекции»: непрерывный blur с потолком.
-            scale-105 на внутреннем слое прячет прозрачную кайму blur. */}
-        <motion.div
-          aria-hidden
-          className="absolute inset-0"
-          style={{
-            display: glLive ? "none" : undefined,
-            clipPath,
-            // Непрерывно, без `transition`: догонять больше нечего — значение
-            // само меняется каждый кадр вместе с позицией шторки. Прежний
-            // переход 180 мс существовал ТОЛЬКО чтобы сгладить прыжок между
-            // ступенями, и вместе со ступенями он ушёл.
-            filter: filterMV,
-            willChange: "filter",
-            ...(depthMask
-              ? { maskImage: DEPTH_MASK, WebkitMaskImage: DEPTH_MASK }
-              : {}),
-          }}
-        >
-          <div className="absolute inset-0 scale-105">
-            <Photo slot={slot} alt="" sizes="(min-width:1280px) 1232px, 100vw" />
-          </div>
-        </motion.div>
-
-        {/* Капсула с диоптриями: крупная, едет с линией, ступенями */}
-        <motion.div
-          aria-hidden
-          className="pointer-events-none absolute left-0 top-[calc(50%-72px)] z-10"
-          style={{ x: capsuleX }}
-        >
-          <span className="block -translate-x-1/2 whitespace-nowrap rounded-full bg-ink/85 px-4 py-1.5 text-sm font-medium tabular-nums text-paper sm:text-base">
-            {formatCapsule(value, signDisplay)}
-          </span>
-        </motion.div>
-
-        {/* Линия-ручка с кружком; значение и подпись — стороне слайдера */}
-        <motion.div
+        {/* Линия-ручка: каркас в HTML, ведёт её живая часть */}
+        <div
           ref={handleRef}
           role="slider"
           tabIndex={0}
@@ -447,18 +146,9 @@ export function VisionSim({
           aria-valuemin={ariaMin}
           aria-valuemax={ariaMax}
           aria-valuenow={ariaNow}
-          aria-valuetext={formatValueText(value, signDisplay)}
-          onKeyDown={onKeyDown}
-          onFocus={() => {
-            setKbFocus(!focusFromPointer.current);
-            focusFromPointer.current = false;
-          }}
-          onBlur={() => setKbFocus(false)}
-          className={cn(
-            "absolute inset-y-0 z-10 -ml-px w-px bg-paper/60 outline-none",
-            kbFocus && "ring-2 ring-brand"
-          )}
-          style={{ left, touchAction: "none" }}
+          aria-valuetext={formatValueText(initialAbs, signDisplay)}
+          className="absolute inset-y-0 z-10 -ml-px w-px bg-paper/60 outline-none"
+          style={{ left: `${startPos}%`, touchAction: "none" }}
         >
           <span className="absolute left-1/2 top-1/2 flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-ink/15 bg-paper shadow-[0_2px_10px_-4px_rgba(13,13,13,0.3)]">
             <svg width="16" height="10" viewBox="0 0 16 10" fill="none" aria-hidden="true">
@@ -472,20 +162,7 @@ export function VisionSim({
               />
             </svg>
           </span>
-
-          {/* Подсказка — исчезает навсегда после первого взаимодействия */}
-          <motion.span
-            aria-hidden
-            animate={{ opacity: touched ? 0 : 1 }}
-            transition={{ duration: reduce ? 0 : 0.3 }}
-            className={cn(
-              capsuleSoft,
-              "absolute left-1/2 top-1/2 mt-9 -translate-x-1/2 whitespace-nowrap"
-            )}
-          >
-            {hint}
-          </motion.span>
-        </motion.div>
+        </div>
 
         {/* Подписи в нижних углах — капсулы поверх фото */}
         <span className={cn(capsuleSoft, "pointer-events-none absolute bottom-4 left-4 z-10")}>
@@ -496,20 +173,11 @@ export function VisionSim({
         </span>
       </div>
 
-      {/* ---- Подпись состояния: кроссфейд 200 мс по ступеням -------- */}
+      {/* Подпись состояния — контент, живёт в HTML и обновляется сигналом */}
       <div className="relative mt-6 h-6 text-center">
-        <AnimatePresence initial={false}>
-          <motion.p
-            key={stateKey}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: reduce ? 0 : 0.2 }}
-            className="absolute inset-x-0 top-0 text-sm font-medium text-ink"
-          >
-            {states[stateKey]}
-          </motion.p>
-        </AnimatePresence>
+        <p className="absolute inset-x-0 top-0 text-sm font-medium text-ink transition-opacity duration-200">
+          {states[stateKey]}
+        </p>
       </div>
     </div>
   );
