@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Renderer } from "ogl";
 import { useTicker } from "@/components/smooth-scroll";
-import { createRenderScale } from "@/lib/render-scale";
+import { createFrameOveruse, createRenderScale } from "@/lib/render-scale";
 
 /* ------------------------------------------------------------------
    ОБЩИЙ ogl-КАНВАС (этап 5, шаг 1). Инфраструктура на два подписных
@@ -21,10 +21,13 @@ import { createRenderScale } from "@/lib/render-scale";
    - `webglcontextlost` → честный переход в фолбэк-режим.
 
    ⚠️ КОНТРАКТ КЛАПАНА (plan.md §8, закреплён render-scale.test.ts).
-   Клапан кормится СТОИМОСТЬЮ работы кадра, а НЕ интервалом между кадрами:
-   интервал задан герцовкой экрана, и регулятор, чей исполнитель не влияет
-   на датчик, душит разрешение на простаивающем телефоне. Здесь стоимость
-   меряется вокруг вызова `draw`. Не менять на `dt`.
+   Закон — ЗАМКНУТОСТЬ КОНТУРА: датчик обязан двигаться от того, чем клапан
+   управляет. Здесь работа уходит на GPU асинхронно, поэтому замер вокруг
+   `draw()` видел бы только выдачу GL-команд — доли миллисекунды, и клапан
+   не шагал БЫ НИКОГДА (так и было: 30 fps при scale 1,0). Датчик —
+   ПЕРЕРАСХОД над измеренным шагом экрана (`createFrameOveruse`): здоровый
+   кадр даёт РОВНО НОЛЬ, поэтому саморазгон структурно невозможен.
+   Сырой `dt` сюда подавать НЕЛЬЗЯ — он задан герцовкой, а не нагрузкой.
 
    ⚠️ Пол разрешения — ПРОП, а не константа: §3-3 запрещает деградировать
    сам ЭФФЕКТ, и у каждого канваса своя граница, за которой падает уже не
@@ -154,14 +157,27 @@ export function GLCanvas({
       return;
     }
 
-    const rs = createRenderScale({ min: minScale });
+    // Порог этого датчика — НЕ общий. Перерасход квантуется вертикальной
+    // синхронизацией: он почти всегда либо 0, либо целый шаг кадра, и EMA
+    // перерасхода ≈ шаг × доля потерянных кадров. Порог 8 означал бы
+    // «половина кадров потеряна» — слишком поздно; 4 — примерно четверть
+    // (plan.md §8, условие 3).
+    const rs = createRenderScale({ min: minScale, slowMs: 4 });
     rs.attach();
 
     let inView = true;
     let lost = false;
-    let lastCost = 0;
     let bw = 0;
     let bh = 0;
+
+    // ---- Датчик: перерасход над ШАГОМ ЭКРАНА (lib/render-scale.ts) ----
+    // Замер вокруг `scene.draw()` показывал доли миллисекунды: это выдача
+    // GL-команд, а настоящая цена платится на GPU асинхронно, за окном
+    // замера. Клапан видел ~0,2 мс при пороге 8 и не шагал НИКОГДА, пока
+    // линза шла на 30 fps (нашёл `hronometrist`).
+    const overuse = createFrameOveruse();
+    let lastFrame = 0;
+    let drewLast = false;
 
     const onLost = (e: Event) => {
       e.preventDefault(); // без этого контекст не восстановится никогда
@@ -213,20 +229,35 @@ export function GLCanvas({
     ensureSize();
 
     const render = (time: number) => {
-      if (lost || !activeRef.current) return;
-      if (typeof document !== "undefined" && document.hidden) return;
-      if (!inView) return;
+      // Любой пропуск кадра обнуляет признак: следующий интервал будет
+      // содержать паузу, а не работу.
+      if (lost || !activeRef.current || !inView) {
+        drewLast = false;
+        return;
+      }
+      if (typeof document !== "undefined" && document.hidden) {
+        drewLast = false;
+        return;
+      }
       // Рисовать нечего — не трогаем ни layout, ни GL. Проверка стоит ДО
       // `ensureSize`, иначе гейт бессмысленен: layout читался бы всё равно.
-      if (renderGateRef.current && !renderGateRef.current()) return;
+      if (renderGateRef.current && !renderGateRef.current()) {
+        drewLast = false;
+        return;
+      }
 
-      // Клапан: датчик — стоимость ПРОШЛОГО кадра (см. контракт в шапке).
-      rs.sample(lastCost, time);
+      // Датчик считается ТОЛЬКО по двум подряд НАРИСОВАННЫМ кадрам: интервал
+      // через пропуск — это пауза, а не нагрузка.
+      if (drewLast) {
+        rs.sample(overuse.push(time - lastFrame), time);
+      } else {
+        overuse.gap();
+      }
+      lastFrame = time;
+      drewLast = true;
+
       ensureSize();
-
-      const t0 = performance.now();
       scene?.draw({ time, width: bw, height: bh });
-      lastCost = performance.now() - t0;
     };
 
     ticker.addRender(render);

@@ -20,7 +20,7 @@
    а не наличие функций.
    ================================================================== */
 
-import { createRenderScale, MAX_DPR } from "./render-scale";
+import { createFrameOveruse, createRenderScale, MAX_DPR } from "./render-scale";
 
 let passed = 0;
 let failed = 0;
@@ -124,6 +124,57 @@ console.log("\n== Пол потребителя ==");
     rs.sample(40, now); // безнадёжная перегрузка
   }
   check("ниже своего пола не уходит", rs.scale >= 0.85, `scale ${rs.scale}`);
+}
+
+console.log("\n== Датчик перерасхода (ogl-канвасы) ==");
+{
+  // Закон: ЗДОРОВЫЙ КАДР ДАЁТ РОВНО НОЛЬ. Иначе клапан саморазгонится и
+  // задушит разрешение на простаивающем телефоне — баг A15 в новом виде.
+  for (const [hz, stepMs] of [[60, 16.7], [90, 11.1], [120, 8.3]] as const) {
+    const o = createFrameOveruse();
+    let worst = 0;
+    for (let i = 0; i < 600; i += 1) worst = Math.max(worst, o.push(stepMs));
+    check(
+      `${hz} Гц в покое — перерасход ноль`,
+      worst === 0,
+      `максимум ${worst.toFixed(2)} мс`
+    );
+    check(
+      `${hz} Гц — шаг экрана ИЗМЕРЕН (${stepMs} мс)`,
+      Math.abs(o.step - stepMs) < 0.2,
+      `получено ${o.step.toFixed(2)}`
+    );
+  }
+}
+{
+  // Потерянные кадры обязаны давать перерасход, иначе клапан слеп.
+  const o = createFrameOveruse();
+  for (let i = 0; i < 120; i += 1) o.push(16.7); // прогрев: шаг найден
+  let sum = 0;
+  for (let i = 0; i < 60; i += 1) sum += o.push(33.4); // каждый кадр удвоен
+  check("потеря кадров даёт перерасход", sum > 900, `сумма ${sum.toFixed(0)} мс`);
+}
+{
+  const o = createFrameOveruse();
+  for (let i = 0; i < 120; i += 1) o.push(16.7);
+  o.gap(); // канвас не рисовал — пауза не должна считаться нагрузкой
+  check("после пропуска первый интервал не считается", o.push(2000) === 0);
+  check("сдвоенный колбэк игнорируется", o.push(1) === 0);
+  // ⚠️ Тяжёлый кадр — НЕ мусор. Отсечка 100 мс делала датчик слепым на
+  // придушенном процессоре, где интервал держится на сотнях мс.
+  check("тяжёлый кадр 300 мс СЧИТАЕТСЯ нагрузкой", o.push(300) > 250, `${o.push(300)}`);
+}
+{
+  // Смена режима экрана (90 → 60 Гц) не должна навсегда оставить старый шаг.
+  const o = createFrameOveruse();
+  for (let i = 0; i < 300; i += 1) o.push(11.1);
+  let worst = 0;
+  for (let i = 0; i < 4000; i += 1) worst = Math.max(worst, o.push(16.7));
+  check(
+    "шаг подстраивается под новый режим экрана",
+    o.step > 16 && o.step <= 16.8,
+    `шаг ${o.step.toFixed(2)}, худший перерасход ${worst.toFixed(1)}`
+  );
 }
 
 console.log("\n== Санитария ==");
