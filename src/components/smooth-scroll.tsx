@@ -59,6 +59,15 @@ export type Tick = (time: number) => void;
 interface Ticker {
   addTick: (fn: Tick) => void;
   removeTick: (fn: Tick) => void;
+  /**
+   * Рендер ogl-канваса. ОТДЕЛЬНЫЙ реестр, а не ещё один `addTick`: закон №4
+   * задаёт ПОРЯДОК кадра — сначала Lenis, потом эффекты (они двигают
+   * uniforms), и только потом рисование. Канвас, подписанный через addTick,
+   * рисовал бы кадр на позициях ПРОШЛОГО кадра — отставание на кадр, которое
+   * ловится глазами как «линза не поспевает за курсором».
+   */
+  addRender: (fn: Tick) => void;
+  removeRender: (fn: Tick) => void;
 }
 
 export const TickerContext = createContext<Ticker | null>(null);
@@ -84,13 +93,16 @@ export default function SmoothScroll({
   // Реестр тика и управление жизнью цикла — в ref-ах (без ре-рендера).
   const lenisRef = useRef<Lenis | null>(null);
   const ticksRef = useRef<Set<Tick>>(new Set());
+  const rendersRef = useRef<Set<Tick>>(new Set());
   const rafRef = useRef(0);
   const runningRef = useRef(false);
 
   const loop = useCallback((time: number) => {
     lenisRef.current?.raf(time);
     ticksRef.current.forEach((fn) => fn(time));
-    // этап 5: здесь рендер ogl-канвасов после эффектов
+    // Рисование — ПОСЛЕДНИМ: к этому моменту Lenis обновил скролл, а эффекты
+    // обновили uniforms, и канвас рисует текущий кадр, а не прошлый.
+    rendersRef.current.forEach((fn) => fn(time));
     rafRef.current = requestAnimationFrame(loop);
   }, []);
 
@@ -101,8 +113,15 @@ export default function SmoothScroll({
   }, [loop]);
 
   const stopIfIdle = useCallback(() => {
-    // Цикл нужен, только пока есть Lenis (ему нужен raf) или живые тики.
-    if (!lenisRef.current && ticksRef.current.size === 0 && runningRef.current) {
+    // Цикл нужен, только пока есть Lenis (ему нужен raf), живые тики ИЛИ
+    // живые рендеры. Забыть про рендеры здесь значило бы гасить цикл под
+    // работающим канвасом.
+    if (
+      !lenisRef.current &&
+      ticksRef.current.size === 0 &&
+      rendersRef.current.size === 0 &&
+      runningRef.current
+    ) {
       cancelAnimationFrame(rafRef.current);
       runningRef.current = false;
     }
@@ -116,6 +135,14 @@ export default function SmoothScroll({
       },
       removeTick: (fn) => {
         ticksRef.current.delete(fn);
+        stopIfIdle();
+      },
+      addRender: (fn) => {
+        rendersRef.current.add(fn);
+        ensureRunning();
+      },
+      removeRender: (fn) => {
+        rendersRef.current.delete(fn);
         stopIfIdle();
       },
     }),
