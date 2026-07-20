@@ -131,6 +131,29 @@ async function main() {
         await evaluate(`window.scrollTo(0, ${s.y || 0}); 0`);
       }
       await sleep(s.wait || 1300);
+
+      /* Клик в ТОЧКУ внутри элемента — доля его ширины (0…1) и высоты.
+         ⚠️ `clickOn` (el.click()) для этого не годится: он бьёт в центр и не
+         несёт координат, а ползунку-шторке нужна именно позиция — состояние
+         эффекта задаётся тем, ГДЕ нажали. Сделано ради кадров −1/−3/−6 дптр
+         в приёмке этапа 6; годится любому слайдеру и любой шторке.
+         Идёт ПОСЛЕ скролла: координаты считаются от уже доехавшего лейаута. */
+      if (s.clickAt) {
+        const at = await evaluate(
+          `(()=>{const el=document.querySelector(${JSON.stringify(s.clickAt.on)});
+            if(!el) return null; const r=el.getBoundingClientRect();
+            return [Math.round(r.left + r.width * ${s.clickAt.fx ?? 0.5}),
+                    Math.round(r.top + r.height * ${s.clickAt.fy ?? 0.5})];})()`
+        );
+        if (at) {
+          for (const type of ["mousePressed", "mouseReleased"]) {
+            await call("Input.dispatchMouseEvent", {
+              type, x: at[0], y: at[1], button: "left", clickCount: 1, pointerType: "mouse",
+            });
+          }
+          await sleep(s.clickAt.wait ?? 900);
+        }
+      }
       // Синтетическое наведение курсора (для приёмки фокус-курсора/лупы):
       // mouseOn — по центру селектора; mouse — по абсолютным [x,y].
       let mxy = Array.isArray(s.mouse) ? s.mouse : null;
