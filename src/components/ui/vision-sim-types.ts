@@ -41,9 +41,17 @@ export const CAPSULE_HALF = 56;
     улицы (0,5 из 6). Толчок включён только у верхней шторки. */
 export const NUDGE_AMP = 8.4;
 
-/** Капсула-подложка: подписи читаемы поверх любой фотографии. */
+/**
+ * Капсула-подложка: подписи читаемы поверх любой фотографии.
+ *
+ * ⚠️ БЕЗ `backdrop-blur`, и это не эстетическая правка. Капсул на симулятор
+ * три, а бюджет контентного стекла — ≤2 в кадре; хуже того, они лежат НАД
+ * канвасом, который перерисовывается каждый кадр, и композитор пересчитывал
+ * бы их фон постоянно (нашёл `hronometrist`). Читаемость добирается
+ * плотностью заливки: 55 % → 70 %, на глаз разница незаметна.
+ */
 export const capsuleSoft =
-  "rounded-full bg-ink/55 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-paper backdrop-blur-sm";
+  "rounded-full bg-ink/70 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-paper";
 
 export type SignDisplay = "minus" | "plus";
 export type StateKey = "zero" | "mild" | "moderate";
