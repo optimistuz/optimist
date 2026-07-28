@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AnimatePresence,
   animate,
@@ -15,6 +15,7 @@ import dynamic from "next/dynamic";
 import { Photo } from "@/components/ui/photo";
 import { cn } from "@/lib/cn";
 import { haptic } from "@/lib/haptics";
+import { useOpticalCapability } from "@/lib/use-optical-capability";
 import type { PhotoSlot } from "@/content/photos";
 import type { StateKey, VisionSimShared } from "@/components/ui/vision-sim-types";
 import {
@@ -142,6 +143,17 @@ export function VisionSimLive({
     if (!touched) setTouched(true);
   };
 
+  /** Доезд до ступени пружиной — общий для клавиш и колеса. */
+  const moveToStep = useCallback(
+    (abs: number) => {
+      const target = (clampAbs(abs) / maxDiopters) * 100;
+      if (reduce) position.set(target);
+      else animate(position, target, { type: "spring", stiffness: 400, damping: 34 });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [maxDiopters, reduce, position]
+  );
+
   // ---- Перетаскивание: обработчики на контейнер оболочки ----
   const focusFromPointer = useRef(false);
   useEffect(() => {
@@ -186,11 +198,6 @@ export function VisionSimLive({
   useEffect(() => {
     const h = handleRef.current;
     if (!h) return;
-    const moveToStep = (abs: number) => {
-      const target = (abs / maxDiopters) * 100;
-      if (reduce) position.set(target);
-      else animate(position, target, { type: "spring", stiffness: 400, damping: 34 });
-    };
     // ⚠️ ВВЕРХ И ВПРАВО УВЕЛИЧИВАЮТ, вниз и влево уменьшают (WAI-ARIA APG).
     // Раньше пара «вверх/вниз» была перевёрнута: вниз увеличивал. Диапазон
     // объявлен модулем (см. `vision-sim.tsx`), поэтому «увеличить» здесь —
@@ -231,6 +238,65 @@ export function VisionSimLive({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handleRef, maxDiopters, step, reduce, position]);
+
+  /* ---- Колесо: шаг за щелчок (шаг 6) ----
+     ⚠️ КОЛЕСО НЕ КРАДЁТ СКРОЛЛ СТРАНИЦЫ. Буквальное «при наведении колесо
+     двигает шторку» означало бы, что человек, прокручивающий страницу мимо
+     симулятора, застревает в нём на десяток щелчков — регрессия и удар по
+     Lenis. Поэтому (решение `dirizher`): ГОРИЗОНТАЛЬНАЯ составляющая работает
+     при наведении без условий, а ВЕРТИКАЛЬНОЕ колесо — только когда ползунок
+     в фокусе, то есть человек уже взялся за него мышью или табом.
+
+     ⚠️ ОДНОГО `preventDefault` НЕ ХВАТАЕТ: Lenis слушает `wheel` на window и
+     НЕ смотрит на `defaultPrevented` (тот же случай, что у зума линзы —
+     `lens-impl.tsx`). Нужен атрибут `data-lenis-prevent-wheel`, и он ставится
+     ТОЛЬКО на время фокуса. Цена решения названа честно: пока ползунок
+     сфокусирован, вертикальное колесо над кадром странице не достаётся даже
+     на упорах диапазона — чтобы прокрутить дальше, надо увести фокус. Это
+     сознательный обмен: альтернатива (снимать атрибут на упоре) даёт двойное
+     движение — и ползунок, и страница разом.
+
+     Гейт природы ввода — через `useOpticalCapability`, своего matchMedia
+     эффект не заводит (закон движка №5). */
+  const { pointerFine } = useOpticalCapability();
+  useEffect(() => {
+    const el = hostRef.current;
+    const h = handleRef.current;
+    if (!el || !h || !pointerFine) return;
+    let last = 0;
+    const onWheel = (e: WheelEvent) => {
+      const horizontal = Math.abs(e.deltaX) > Math.abs(e.deltaY);
+      const focused = typeof document !== "undefined" && document.activeElement === h;
+      const raw = horizontal ? e.deltaX : focused ? e.deltaY : 0;
+      if (!raw) return;
+      // Вправо и вверх увеличивают — как у клавиш.
+      const dir = horizontal ? (raw > 0 ? 1 : -1) : raw > 0 ? -1 : 1;
+      const cur = valueRef.current;
+      const next = clampAbs(cur + dir * step);
+      // На упоре колесо возвращается странице, а не проваливается в пустоту.
+      if (next === cur) return;
+      e.preventDefault();
+      // Трекпад сыплет десятками событий на один жест — иначе один взмах
+      // проходил бы весь диапазон.
+      const now = performance.now();
+      if (now - last < 90) return;
+      last = now;
+      markTouched();
+      moveToStep(next);
+    };
+    const onFocus = () => el.setAttribute("data-lenis-prevent-wheel", "");
+    const onBlur = () => el.removeAttribute("data-lenis-prevent-wheel");
+    el.addEventListener("wheel", onWheel, { passive: false });
+    h.addEventListener("focus", onFocus);
+    h.addEventListener("blur", onBlur);
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      h.removeEventListener("focus", onFocus);
+      h.removeEventListener("blur", onBlur);
+      el.removeAttribute("data-lenis-prevent-wheel");
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hostRef, handleRef, pointerFine, step, moveToStep]);
 
   // ---- ARIA-числа обновляются на узле оболочки ----
   useEffect(() => {
