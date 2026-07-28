@@ -234,6 +234,19 @@ export function GLCanvas({
     let lastW = -1;
     let lastH = -1;
     let lastRatio = -1;
+    /**
+     * ⚠️ РЕСАЙЗ — ЭТО «ЕСТЬ ЧТО РИСОВАТЬ». `renderer.setSize()` пересоздаёт и
+     * ОЧИЩАЕТ буфер, а гейт покоя пускает кадр только на смену состояния
+     * сцены. Поэтому после ресайза окна или ПОВОРОТА ТЕЛЕФОНА канвас оставался
+     * пустым, и «размытая» половина шторки становилась резкой, пока капсула
+     * продолжала показывать −3 дптр (нашёл `fizik`: резкость размытой половины
+     * 0,84 → 12,30 — в точности замер «канвас скрыт»). Симулятор в этот момент
+     * врал о зрении, и без единой ошибки в консоли.
+     *
+     * Флаг ставит только ФАКТИЧЕСКАЯ смена размера, иначе он выродился бы
+     * в отмену гейта покоя, ради которого всё и делалось.
+     */
+    let sizeDirty = false;
     const ensureSize = () => {
       const w = host.clientWidth;
       const h = host.clientHeight;
@@ -245,6 +258,7 @@ export function GLCanvas({
         lastW = w;
         lastH = h;
         lastRatio = ratio;
+        sizeDirty = true;
       }
       bw = w;
       bh = h;
@@ -264,23 +278,31 @@ export function GLCanvas({
       }
       // Рисовать нечего — не трогаем ни layout, ни GL. Проверка стоит ДО
       // `ensureSize`, иначе гейт бессмысленен: layout читался бы всё равно.
-      if (renderGateRef.current && !renderGateRef.current()) {
+      // Исключение — очищенный ресайзом буфер: там рисовать КАК РАЗ есть что.
+      const forced = sizeDirty;
+      if (!forced && renderGateRef.current && !renderGateRef.current()) {
         drewLast = false;
         return;
       }
 
       // Датчик считается ТОЛЬКО по двум подряд НАРИСОВАННЫМ кадрам: интервал
       // через пропуск — это пауза, а не нагрузка.
-      if (drewLast) {
+      // ⚠️ Кадр после ресайза клапану НЕ показывается ни как нагрузка, ни как
+      // опора для следующего интервала: он пересоздаёт буфер и цепочку FBO,
+      // и поворот телефона выглядел бы для датчика перегрузкой — разрешение
+      // упало бы на ровном месте, то есть страховка портила бы картинку
+      // вместо того, чтобы её спасать.
+      if (drewLast && !forced) {
         rs.sample(overuse.push(time - lastFrame), time);
       } else {
         overuse.gap();
       }
       lastFrame = time;
-      drewLast = true;
+      drewLast = !forced;
 
       ensureSize();
       scene?.draw({ time, width: bw, height: bh });
+      sizeDirty = false;
     };
 
     ticker.addRender(render);
@@ -291,9 +313,23 @@ export function GLCanvas({
         : null;
     if (ro) ro.observe(host);
 
+    // ⚠️ ВОЗВРАТ ИЗ СКРЫТОЙ ВКЛАДКИ — тоже «есть что рисовать». Пока вкладка
+    // скрыта, петля не рисует (батарея), а браузер вправе выбросить
+    // содержимое буфера. Без принудительного кадра пользователь возвращался
+    // бы к пустому канвасу, и гейт покоя честно держал бы его пустым.
+    const onVisible = () => {
+      if (!document.hidden) sizeDirty = true;
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onVisible);
+    }
+
     return () => {
       ticker.removeRender(render);
       canvas.removeEventListener("webglcontextlost", onLost);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", onVisible);
+      }
       if (io) io.disconnect();
       if (ro) ro.disconnect();
       rs.detach();

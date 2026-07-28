@@ -56,7 +56,17 @@ export const capsuleSoft =
 export type SignDisplay = "minus" | "plus";
 export type StateKey = "zero" | "mild" | "moderate";
 
-/** «−2,5 дптр» / «+1,25 дптр» — формат ru-RU, запятая. */
+/**
+ * «−2,5 дптр» / «+1,25 дптр» — формат ru-RU, запятая.
+ *
+ * ⚠️ ПРОБЕЛ ПЕРЕД ЕДИНИЦЕЙ — НЕРАЗРЫВНЫЙ. Канон называет «−6 дптр» прямо,
+ * в перечне обязательных связок, а в коде его не было ни одного: все пробелы
+ * файла оказались обычными. Символ задан КОДОМ, а не вписан в строку —
+ * невидимый U+00A0 в исходнике не отличить от простого пробела ни глазом,
+ * ни в диффе, и потому он теряется молча (уже потерялся однажды).
+ */
+const NBSP = String.fromCharCode(0xa0);
+
 export const formatCapsule = (abs: number, sign: SignDisplay) =>
   sign === "minus"
     ? (abs > 0 ? "−" : "") +
@@ -64,14 +74,16 @@ export const formatCapsule = (abs: number, sign: SignDisplay) =>
         minimumFractionDigits: 1,
         maximumFractionDigits: 1,
       }) +
-      " дптр"
+      NBSP +
+      "дптр"
     : (abs > 0 ? "+" : "") +
       abs.toLocaleString("ru-RU", { maximumFractionDigits: 2 }) +
-      " дптр";
+      NBSP +
+      "дптр";
 
 /** «минус 2,5 диоптрии» / «плюс 1,25 диоптрии» — aria-valuetext со склонением. */
 export function formatValueText(abs: number, sign: SignDisplay): string {
-  if (abs === 0) return "0 диоптрий";
+  if (abs === 0) return `0${NBSP}диоптрий`;
   const num = abs.toLocaleString("ru-RU", { maximumFractionDigits: 2 });
   const word = !Number.isInteger(abs)
     ? "диоптрии"
@@ -80,7 +92,7 @@ export function formatValueText(abs: number, sign: SignDisplay): string {
       : abs <= 4
         ? "диоптрии"
         : "диоптрий";
-  return `${sign === "minus" ? "минус" : "плюс"} ${num} ${word}`;
+  return `${sign === "minus" ? "минус" : "плюс"}${NBSP}${num}${NBSP}${word}`;
 }
 
 /** Стандартная классификация степени дефекта; граница «слабой» — mildMax. */

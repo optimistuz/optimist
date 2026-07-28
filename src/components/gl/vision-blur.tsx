@@ -68,11 +68,30 @@ export function VisionBlur({
   const clipRef = useRef(clip);
   clipRef.current = clip;
   const lastClipRef = useRef("");
+  /**
+   * ⚠️ ТЕКСТУРА ПРИЕХАЛА ПОЗЖЕ — тоже «есть что рисовать». Фото декодируется
+   * асинхронно, и при медленной сети `load` наступает, когда шторку уже никто
+   * не трогает. Гейт покоя пускает кадр только на смену расфокуса или
+   * положения — без этого флага слой оставался бы пустым до первого касания,
+   * то есть «без коррекции» показывало бы резкий DOM.
+   */
+  const texDirtyRef = useRef(false);
 
   const setup = useCallback(
     ({ renderer, gl }: GLSetupArgs): GLScene => {
       const texture = new Texture(gl, { generateMipmaps: false });
-      const kawase = createKawase(gl, { levels: 3, scale: 0.5 });
+      /**
+       * ⚠️ ПЯТЬ СТУПЕНЕЙ, А НЕ ТРИ. Трёх хватало, пока радиус мерился в
+       * пикселях буфера неявно и на плотном экране был вдвое слабее
+       * обещанного. После нормировки (см. `kawase.render`) верхняя треть хода
+       * на DPR 2 требует четвёртой ступени: `rBuf` доходит до 32, а глубина
+       * упиралась в 3 — цепочка молча переставала расти, и «честные −6 дптр»
+       * на ЭТАЛОННОМ ТЕЛЕФОНЕ упирались в потолок, которого канон у GL-ветки
+       * не признаёт. Пятая — запас: ступень стоит один FBO шириной ~1/64
+       * буфера (десятки пикселей) и НЕ рисуется, пока радиус до неё не дорос,
+       * а «ровно впритык» — это то же молчаливое усечение, только отложенное.
+       */
+      const kawase = createKawase(gl, { levels: 5, scale: 0.5 });
       kawaseRef.current = kawase;
 
       /**
@@ -122,6 +141,7 @@ export function VisionBlur({
           texture.needsUpdate = true;
           // Размеры фото стали известны только сейчас — обрезку считаем здесь.
           recalcCover(lastBox[0], lastBox[1]);
+          texDirtyRef.current = true;
         };
         if (img.complete && img.naturalWidth > 0) use();
         else img.addEventListener("load", use, { once: true });
@@ -131,7 +151,11 @@ export function VisionBlur({
       return {
         resize: (w, h) => {
           const ratio = renderer.dpr || 1;
-          kawase.resize(Math.round(w * ratio), Math.round(h * ratio));
+          // Третьим аргументом — CSS-ширина: только зная её, цепочка может
+          // перевести радиус из CSS-пикселей в свои тексели. Считать это
+          // отношение здесь по `renderer.dpr` нельзя — цепочка пересобирается
+          // только на рост и после шага клапана вниз живёт в прежнем размере.
+          kawase.resize(Math.round(w * ratio), Math.round(h * ratio), w);
           lastBox = [w, h];
           recalcCover(w, h);
         },
@@ -200,6 +224,12 @@ export function VisionBlur({
   const restRef = useRef({ s: -1, clip: "", settled: false });
   const shouldRender = useCallback(() => {
     const st = restRef.current;
+    // Текстура доехала — рисуем, чем бы ни занимался пользователь.
+    if (texDirtyRef.current) {
+      texDirtyRef.current = false;
+      st.settled = false;
+      return true;
+    }
     const s = severity.get();
     const clipNow = clip?.get() ?? "";
     if (s !== st.s || clipNow !== st.clip) {

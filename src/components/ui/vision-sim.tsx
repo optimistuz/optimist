@@ -94,9 +94,6 @@ export function VisionSim({
   }, []);
 
   const startPos = startAtCenter ? 50 : 0;
-  const ariaNow = signDisplay === "minus" ? -initialAbs : initialAbs;
-  const ariaMin = signDisplay === "minus" ? -maxDiopters : 0;
-  const ariaMax = signDisplay === "minus" ? 0 : maxDiopters;
 
   return (
     <div className={className}>
@@ -136,16 +133,31 @@ export function VisionSim({
           />
         )}
 
-        {/* Линия-ручка: каркас в HTML, ведёт её живая часть */}
+        {/* Линия-ручка: каркас в HTML, ведёт её живая часть.
+
+            ⚠️ ДИАПАЗОН ОБЪЯВЛЕН МОДУЛЕМ (0…maxDiopters), знак живёт в
+            `aria-valuetext` («минус 3 диоптрии»). Знаковый диапазон
+            (−6…0) выглядел правильнее, но ломал управление: у близорукости
+            максимум приходился на НОЛЬ, то есть на левый край кадра, и APG
+            требовал бы, чтобы стрелка «вправо» гнала ручку ВЛЕВО, а Home и
+            End садились на противоположные концы. Так и было (нашёл `fizik`
+            замером с живого узла). По модулю значение растёт слева направо
+            и визуально, и численно; заодно диапазон перестал противоречить
+            собственной подписи — `aria-label` говорит «СИЛА близорукости»,
+            то есть величина без знака.
+
+            ⚠️ `tabIndex` НЕ проставляется здесь: до подъёма ленивой машинерии
+            клавиши не работают, и фокусируемый `role="slider"` обещал бы
+            скринридеру регулятор, который ничего не делает. Атрибут ставит
+            живая часть — тем же способом, каким правит `aria-valuenow`. */}
         <div
           ref={handleRef}
           role="slider"
-          tabIndex={0}
           aria-label={ariaLabel}
           aria-orientation="horizontal"
-          aria-valuemin={ariaMin}
-          aria-valuemax={ariaMax}
-          aria-valuenow={ariaNow}
+          aria-valuemin={0}
+          aria-valuemax={maxDiopters}
+          aria-valuenow={initialAbs}
           aria-valuetext={formatValueText(initialAbs, signDisplay)}
           className="absolute inset-y-0 z-10 -ml-px w-px bg-paper/60 outline-none"
           style={{ left: `${startPos}%`, touchAction: "none" }}

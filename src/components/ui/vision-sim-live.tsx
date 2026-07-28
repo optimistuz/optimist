@@ -191,11 +191,16 @@ export function VisionSimLive({
       if (reduce) position.set(target);
       else animate(position, target, { type: "spring", stiffness: 400, damping: 34 });
     };
+    // ⚠️ ВВЕРХ И ВПРАВО УВЕЛИЧИВАЮТ, вниз и влево уменьшают (WAI-ARIA APG).
+    // Раньше пара «вверх/вниз» была перевёрнута: вниз увеличивал. Диапазон
+    // объявлен модулем (см. `vision-sim.tsx`), поэтому «увеличить» здесь —
+    // это «сильнее дефект» и «правее ручка» одновременно, для обоих
+    // симуляторов сразу.
     const onKey = (e: KeyboardEvent) => {
       let next: number | null = null;
       const cur = valueRef.current;
-      if (e.key === "ArrowRight" || e.key === "ArrowDown") next = cur + step;
-      else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = cur - step;
+      if (e.key === "ArrowRight" || e.key === "ArrowUp") next = cur + step;
+      else if (e.key === "ArrowLeft" || e.key === "ArrowDown") next = cur - step;
       else if (e.key === "Home") next = 0;
       else if (e.key === "End") next = maxDiopters;
       if (next === null) return;
@@ -214,10 +219,15 @@ export function VisionSimLive({
     h.addEventListener("keydown", onKey);
     h.addEventListener("focus", onFocus);
     h.addEventListener("blur", onBlur);
+    // ⚠️ В ФОКУСНЫЙ ПОРЯДОК ползунок входит ровно СЕЙЧАС — вместе с клавишами,
+    // а не в серверной разметке. Иначе между показом страницы и подъёмом
+    // ленивой машинерии по табу ловился бы регулятор, который не регулирует.
+    h.setAttribute("tabindex", "0");
     return () => {
       h.removeEventListener("keydown", onKey);
       h.removeEventListener("focus", onFocus);
       h.removeEventListener("blur", onBlur);
+      h.removeAttribute("tabindex");
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handleRef, maxDiopters, step, reduce, position]);
@@ -226,8 +236,8 @@ export function VisionSimLive({
   useEffect(() => {
     const h = handleRef.current;
     if (!h) return;
-    const now = signDisplay === "minus" ? -value : value;
-    h.setAttribute("aria-valuenow", String(now));
+    // Число — модуль (диапазон объявлен модулем), знак — в тексте.
+    h.setAttribute("aria-valuenow", String(value));
     h.setAttribute("aria-valuetext", formatValueText(value, signDisplay));
   }, [value, signDisplay, handleRef]);
 
