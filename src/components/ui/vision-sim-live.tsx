@@ -131,6 +131,11 @@ export function VisionSimLive({
     );
   });
 
+  /** Оптическая «дорезка» счётчика: 0 дптр — дисплейная резка, максимум —
+      текстовая. Число, а не строка: `fontVariationSettings` motion не
+      интерполирует, а CSS-переменную — надёжно (тот же приём, что в hero). */
+  const opsz = useTransform(severityMV, [0, 1], [72, 20]);
+
   // ---- Ведём линию-ручку из оболочки ----
   useMotionValueEvent(left, "change", (v) => {
     const h = handleRef.current;
@@ -410,15 +415,34 @@ export function VisionSimLive({
         </div>
       </motion.div>
 
-      {/* Капсула с диоптриями — едет с линией */}
+      {/* ДИСПЛЕЙНЫЙ СЧЁТЧИК ДИОПТРИЙ (шаг 5) — едет с линией.
+
+          ⚠️ Это УКРУПНЁННАЯ прежняя капсула, а не новый элемент: в кадре уже
+          три подписи, и четвёртая спорила бы с фотографией (решение владельца).
+
+          ⚠️ Цифра «дорезается» оптической осью Literata синхронно со шторкой:
+          при нуле диоптрий — дисплейная резка (opsz 72, высокий контраст
+          штриха), при максимуме — текстовая (opsz 20, штрих плотнее и мягче).
+          Смысл прямой: чем хуже зрение, тем менее отточена буква. Механизм тот
+          же, что у заголовков hero (`lib/motion.ts`): анимируется ЧИСЛОМ CSS-
+          переменная `--opsz`, а шрифт читает её через `font-variation-settings`
+          — сам `fontVariationSettings` motion не интерполирует. */}
       <motion.div
         aria-hidden
-        className="pointer-events-none absolute left-0 top-[calc(50%-72px)] z-10"
+        className="pointer-events-none absolute left-0 top-[calc(50%-96px)] z-10"
         style={{ x: capsuleX }}
       >
-        <span className="block -translate-x-1/2 whitespace-nowrap rounded-full bg-ink/85 px-4 py-1.5 text-sm font-medium tabular-nums text-paper sm:text-base">
+        <motion.span
+          className="block -translate-x-1/2 whitespace-nowrap rounded-full bg-ink/85 px-5 py-2 font-serif text-2xl font-medium tabular-nums leading-none text-paper sm:px-6 sm:py-2.5 sm:text-4xl"
+          style={
+            {
+              "--opsz": opsz,
+              fontVariationSettings: '"opsz" var(--opsz, 72)',
+            } as React.CSSProperties
+          }
+        >
           {formatCapsule(value, signDisplay)}
-        </span>
+        </motion.span>
       </motion.div>
 
       {/* Подсказка у ручки — гаснет навсегда после первого касания */}
