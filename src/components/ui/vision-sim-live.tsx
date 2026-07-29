@@ -160,13 +160,23 @@ export function VisionSimLive({
     const el = hostRef.current;
     if (!el) return;
     let dragging = false;
+    // Хвост движения для инерции: позиция в процентах и время последних
+    // событий. Берём СВОЮ историю, а не Motion `useVelocity` — закон движка
+    // №6 запрещает подмешивать его к шине скорости проекта.
+    let trail: { p: number; t: number }[] = [];
     const setFromClientX = (clientX: number) => {
       const rect = el.getBoundingClientRect();
       if (!rect.width) return;
-      position.set(clampPos(((clientX - rect.left) / rect.width) * 100));
+      const p = clampPos(((clientX - rect.left) / rect.width) * 100);
+      position.set(p);
+      const t = performance.now();
+      trail.push({ p, t });
+      // Держим только последние 90 мс — по ним и считается бросок.
+      while (trail.length > 2 && t - trail[0].t > 90) trail.shift();
     };
     const down = (e: PointerEvent) => {
       dragging = true;
+      trail = [];
       markTouched();
       el.setPointerCapture(e.pointerId);
       setFromClientX(e.clientX);
@@ -178,8 +188,34 @@ export function VisionSimLive({
     const move = (e: PointerEvent) => {
       if (dragging) setFromClientX(e.clientX);
     };
+    /**
+     * ⚠️ ДОСНАП ПОЗИЦИИ НА ОТПУСКАНИИ (шаг 4). Канон требует «снап позиции и
+     * вибрация — на ступенях 0,5», но снапилось только ЧИСЛО: линия
+     * останавливалась между ступенями, и подпись «−3,5 дптр» стояла над
+     * ручкой, которая физически показывает −3,42. Теперь бросок продолжается
+     * инерцией и садится на ближайшую ступень пружиной.
+     *
+     * Скорость берётся из собственного хвоста событий, а не из Motion
+     * `useVelocity`: закон движка №6 держит единственную шину скорости
+     * (Lenis, px/кадр), и подмешивать к ней вторую единицу нельзя.
+     */
     const up = () => {
+      if (!dragging) return;
       dragging = false;
+      const now = performance.now();
+      const first = trail[0];
+      const lastPt = trail[trail.length - 1];
+      // Бросок учитывается, только если палец РЕАЛЬНО двигался под конец:
+      // застоявшийся хвост дал бы фантомный доводчик на простом клике.
+      const dt = first && lastPt ? lastPt.t - first.t : 0;
+      const fresh = lastPt ? now - lastPt.t < 120 : false;
+      const vel = dt > 8 && fresh ? (lastPt.p - first.p) / dt : 0; // %/мс
+      const PROJECT_MS = 110;
+      const projected = clampPos(position.get() + vel * PROJECT_MS);
+      const stepPct = (step / maxDiopters) * 100;
+      const target = clampPos(Math.round(projected / stepPct) * stepPct);
+      if (reduce) position.set(target);
+      else animate(position, target, { type: "spring", stiffness: 320, damping: 30 });
     };
     el.addEventListener("pointerdown", down);
     el.addEventListener("pointermove", move);
@@ -192,7 +228,7 @@ export function VisionSimLive({
       el.removeEventListener("pointercancel", up);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hostRef, handleRef, position]);
+  }, [hostRef, handleRef, position, step, maxDiopters, reduce]);
 
   // ---- Клавиатура: ступенями, ARIA обновляется на самом узле ----
   useEffect(() => {
