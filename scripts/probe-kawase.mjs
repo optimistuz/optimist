@@ -836,6 +836,7 @@ async function main() {
       if(!fb) return {err:'слой фолбэка не найден'};
       if(spec.fb!==undefined){ fb.style.display=spec.fb?'block':'none'; fb.style.clipPath='inset(0)'; }
       if(spec.blur!==undefined){ fb.style.filter='blur('+spec.blur+'px)'; }
+      if(spec.filter!==undefined){ fb.style.filter=spec.filter; }
       const inner=fb.firstElementChild;
       if(spec.noScale&&inner) inner.style.transform='none';
       // ⚠️ ХРОМ ШТОРКИ УБИРАЕТСЯ ИЗ КАДРА НА ВРЕМЯ ЗАМЕРА. Дисплейная капсула
@@ -893,6 +894,9 @@ async function main() {
         const st=await Promise.all(imgs.map(wait));
         return {n:imgs.length, decoded:st.filter(v=>v===1).length, timeout:st.filter(v=>v===-1).length,
           ready:imgs.filter(im=>im.complete&&im.naturalWidth>0&&im.currentSrc.startsWith('data:')).length};})()`;
+      // Кнопка отпускается ДО навигации: пресс, «переживший» смену документа,
+      // оставляет стейт ввода браузера в противоречии с нашим флагом.
+      await release();
       await call("Page.navigate", { url: BASE + "/" });
       // ⚠️ ЗАЖАТАЯ КНОПКА НЕ ПЕРЕЖИВАЕТ НАВИГАЦИЮ, а флаг о ней переживал:
       // новый документ не получал `pointerdown`, и `hold` рассылал ему только
@@ -1086,9 +1090,22 @@ async function main() {
         `, кадр: ${keepPhoto ? "НАСТОЯЩЕЕ ФОТО" : "эталонный край"} =====`);
       if (!(await prepare(6, "sweep", keepPhoto))) return;
       await force(null);
-      await layers({ canvas: true, fb: false });
       inf = await simInfo();
       const allocRatio = inf.cw && inf.ccw ? inf.cw / inf.ccw : DSF;
+      /**
+       * ⚠️ ПРЕСС — ДО ПЕРЕКРОЙКИ СЛОЁВ, и это найдено бисекцией, а не
+       * рассуждением. Если pointerdown происходит, когда прибор уже залез в
+       * инлайн-стили симулятора (клип канваса, скрытый хром), Chrome через
+       * ~2,3 с шлёт ДОВЕРЕННЫЙ pointercancel — доснап срабатывает, и все
+       * последующие движения зажатой кнопки игнорируются: прибор «ведёт»
+       * шторку, а мерит один кадр (два прогона подряд поймал предохранитель
+       * вырожденной серии). Пресс в НЕТРОНУТОМ состоянии живёт сколько
+       * угодно; перекройка слоёв после пресса безопасна.
+       */
+      await hold(JIG[0]);
+      await sleep(250);
+      await layers({ canvas: true, fb: false });
+      await sleep(150);
       const rows = [];
       let prevImg = null;
       /**
@@ -1134,27 +1151,51 @@ async function main() {
         // и «плато» было бы артефактом гонки, а не свойством цепочки.
         const clipNow = await ev(`(()=>{const c=document.querySelectorAll(${Q})[${SIM}].querySelector('canvas');
           return c?c.style.clipPath:null;})()`);
+        // Каждое положение снимается ДВАЖДЫ: разброс повторов — вот шум
+        // прибора, он ИЗМЕРЯЕТСЯ, а не назначается (критерий dirizher).
         const img = await shot(null);
+        await sleep(120);
+        const img2 = await shot(null);
+        const rpt = +meanAbs(img, img2, win()).toFixed(3);
         const m = edgeSigma2(img, inf);
         const dPix = prevImg ? +meanAbs(img, prevImg, win()).toFixed(3) : null;
         prevImg = img;
-        rows.push({ r: +r.toFixed(3), pos: a.pos, clip: clipNow, dPix, ...m });
+        rows.push({ r: +r.toFixed(3), pos: a.pos, clip: clipNow, dPix, rpt, ...m });
         console.log(`   rBuf=${r.toFixed(3)} (pos ${a.pos?.toFixed?.(3)}) → σ² ${String(m.sigma2).padStart(9)}` +
-          `  Δпикс за шаг ${dPix === null ? "—" : dPix.toFixed(3)}${m.valid ? "" : "  σ² НЕ ИЗМЕРЕНО"}`);
+          `  Δпикс за шаг ${dPix === null ? "—" : dPix.toFixed(3)}  повтор ${rpt}${m.valid ? "" : "  σ² НЕ ИЗМЕРЕНО"}`);
       }
       await release();
       results.sweep = { allocRatio, from, to, step, rows };
       degenerate(rows.map((q) => q.sigma2), `мелкий проход ${from}…${to}`);
-      // Скачок = шаг, на котором картинка изменилась НАМНОГО сильнее соседних.
-      const ds = rows.map((q) => q.dPix).filter((v) => typeof v === "number");
-      if (ds.length >= 5) {
-        const sorted = [...ds].sort((a, b) => a - b);
-        const med = sorted[Math.floor(sorted.length / 2)];
-        const worst = Math.max(...ds);
-        const at = rows.find((q) => q.dPix === worst);
-        console.log(`   Δпикс: медиана ${med.toFixed(3)}, максимум ${worst.toFixed(3)} при rBuf=${at?.r}` +
-          `  ⇒ отношение ${(worst / Math.max(med, 1e-6)).toFixed(2)}×`);
-        results.sweep.pixel = { median: +med.toFixed(3), worst: +worst.toFixed(3), at: at?.r, ratio: +(worst / Math.max(med, 1e-6)).toFixed(2) };
+      /**
+       * ВЕРДИКТ ПО КРИТЕРИЮ dirizher — ни одного назначенного порога:
+       *  1) шаг ЧЕРЕЗ границу обязан попадать В РАЗБРОС шагов ВНУТРИ ветки
+       *     («граница ничем не выделяется среди обычных шагов»);
+       *  2) шум — максимум разброса повторного замера одного положения;
+       *  3) внутриветочные шаги, совпавшие до последнего знака, — вырождение.
+       * Граница подаётся через BORDER (rBuf настоящей точки переключения
+       * построенного расписания).
+       */
+      const border = Number(process.env.BORDER || NaN);
+      const ds = rows.slice(1).map((q, i) => ({ d: q.dPix, lo: rows[i].r, hi: q.r }));
+      const noiseMax = Math.max(...rows.map((q) => q.rpt));
+      if (Number.isFinite(border)) {
+        const cross = ds.filter((s) => s.lo < border && s.hi >= border);
+        const inside = ds.filter((s) => !(s.lo < border && s.hi >= border)).map((s) => s.d);
+        if (!cross.length || inside.length < 4) {
+          die(`sweep: границе ${border} не хватает точек (через неё ${cross.length}, внутри веток ${inside.length})`);
+        } else {
+          degenerate(inside, "sweep: внутриветочные шаги");
+          const worstCross = Math.max(...cross.map((s) => s.d));
+          const insideMax = Math.max(...inside);
+          console.log(`   ГРАНИЦА ${border}: шаг через неё ${worstCross.toFixed(3)}; внутриветочные до ${insideMax.toFixed(3)}; шум повтора до ${noiseMax.toFixed(3)}`);
+          if (worstCross > insideMax + noiseMax) {
+            die(`ГРАНИЦА ${border} ВЫДЕЛЯЕТСЯ: шаг через неё ${worstCross.toFixed(3)} > максимум внутриветочных ${insideMax.toFixed(3)} + шум ${noiseMax.toFixed(3)}`);
+          } else {
+            console.log(`   ✅ граница неотличима от рядового шага`);
+          }
+          results.sweep.verdict = { border, worstCross, insideMax, noiseMax };
+        }
       }
     }
 
@@ -1169,72 +1210,356 @@ async function main() {
         .split(",")
         .map(Number);
       console.log("\n===== ПРОБА НА КРЕСТ (точечный источник) =====");
-      const uri = dotUri(3);
-      const swap = `(async()=>{const imgs=[...document.querySelectorAll(${Q}+' img')];
-        for(const im of imgs){ im.loading='eager'; im.removeAttribute('srcset'); im.removeAttribute('sizes'); im.src=${JSON.stringify(uri)}; }
-        const wait=(im)=>Promise.race([im.decode().then(()=>1).catch(()=>0), new Promise(r=>setTimeout(()=>r(-1),3000))]);
-        const st=await Promise.all(imgs.map(wait));
-        return {n:imgs.length, ready:imgs.filter(im=>im.complete&&im.naturalWidth>0&&im.currentSrc.startsWith('data:')).length};})()`;
-      await call("Page.navigate", { url: BASE + "/" });
-      held = false;
-      await sleep(4200);
-      const early = await ev(swap);
-      await scrollToSim();
-      await sleep(1400);
-      const late = await ev(swap);
-      await sleep(800);
-      inf = await simInfo();
-      console.log(`   кадр-точка: рано ${JSON.stringify(early)} поздно ${JSON.stringify(late)}`);
-      if (!inf?.hasCanvas || late.ready < late.n) {
-        die("проба на крест: точечный кадр не встал");
-        return;
-      }
-      await layers({ canvas: true, fb: false });
-      // Центр пятна: середина кадра (кроп cover симметричен).
-      const cx = inf.left + inf.w / 2;
-      const cy = inf.top + inf.h / 2;
+      /**
+       * ⚠️ РАЗМЕР ПЯТНА ПОДБИРАЕТСЯ ПОД СТУПЕНЬ — тот же урок, что с
+       * эталонами резкости (σ₀ под масштаб). Пятно σ=3 px после ступени 4
+       * растекается в сотни пикселей: пик над фоном падает до единиц, кольца
+       * читают шум квантования, и «анизотропия» перестаёт быть измеренной.
+       * Крупному ядру — крупное пятно (пик держится), мелкому — мелкое
+       * (иначе пятно само замывает форму ядра, которую меряем).
+       */
+      const DOT_SIGMA = { 1: 3, 2: 3, 3: 7, 4: 14, 5: 24 };
       const rows = [];
+      const LIMIT = Number(process.env.CROSS_LIMIT || 0.15);
       for (let lv = 1; lv <= LEVELS; lv += 1) {
+        const uri = dotUri(DOT_SIGMA[lv] ?? 7);
+        const swap = `(async()=>{const imgs=[...document.querySelectorAll(${Q}+' img')];
+          for(const im of imgs){ im.loading='eager'; im.removeAttribute('srcset'); im.removeAttribute('sizes'); im.src=${JSON.stringify(uri)}; }
+          const wait=(im)=>Promise.race([im.decode().then(()=>1).catch(()=>0), new Promise(r=>setTimeout(()=>r(-1),3000))]);
+          await Promise.all(imgs.map(wait));
+          return {n:imgs.length, ready:imgs.filter(im=>im.complete&&im.naturalWidth>0&&im.currentSrc.startsWith('data:')).length};})()`;
+        // Навигация на каждую ступень: текстура снимается с <img> один раз,
+        // и сменить размер пятна на живой странице нельзя.
+        await release();
+        await call("Page.navigate", { url: BASE + "/" });
+        held = false;
+        await sleep(4200);
+        const early = await ev(swap);
+        await scrollToSim();
+        await sleep(1400);
+        const late = await ev(swap);
+        await sleep(800);
+        inf = await simInfo();
+        if (!inf?.hasCanvas || late.ready < late.n) {
+          die(`проба на крест lv=${lv}: точечный кадр не встал (рано ${JSON.stringify(early)}, поздно ${JSON.stringify(late)})`);
+          continue;
+        }
+        await layers({ canvas: true, fb: false });
+        // Центр пятна: середина кадра (кроп cover симметричен).
+        const cx = inf.left + inf.w / 2;
+        const cy = inf.top + inf.h / 2;
         const row = [];
         for (const off of offs) {
+          // ⚠️ БЕЗ ПЕРЕТАСКИВАНИЯ: кадр просит сам порт (тик в shouldRender,
+          // см. vision-blur.tsx). Синтетический drag здесь однажды молча умер
+          // посреди прогона — канвас застыл, и все ступени показали одну и ту
+          // же «анизотропию 19,0 %» (поймал предохранитель вырожденной серии).
           await force({ lv, offset: off, mix: 1 });
-          await jiggle();
+          await sleep(300);
           await layers({ canvas: true, fb: false });
-          await sleep(230);
-          const im = await shot(null);
-          // σ ядра берём из СОБСТВЕННОГО замера этой же точки по краю пятна:
-          // радиусы колец обязаны следовать за размытием, иначе на глубокой
-          // ступени кольца лежат внутри плато и анизотропии не видят вовсе.
+          await sleep(120);
+          const im = await shot(process.env.CROSS_SAVE ? `kw-cross-${lv}-${off}` : null);
+          // σ ядра — из собственного замера пятна: кольца обязаны следовать
+          // за размытием, иначе на глубокой ступени они лежат внутри плато.
           const prof = [];
-          for (let d = 0; d < 220; d += 1) prof.push(luma(px(im, Math.round(cx + d), Math.round(cy))));
+          for (let d = 0; d < 400; d += 1) prof.push(luma(px(im, Math.round(cx + d), Math.round(cy))));
           const peak = prof[0];
-          const floorV = prof[prof.length - 1];
-          const half = prof.findIndex((v) => v < floorV + (peak - floorV) * 0.5);
-          const sigmaPx = half > 0 ? half / 1.1774 : 4;
-          const a = anisotropy(im, cx, cy, sigmaPx);
-          row.push({ off, sigmaPx: +sigmaPx.toFixed(2), ...a });
+          const floorV = Math.min(...prof.slice(-40));
+          const contrast = peak - floorV;
+          // Полуспад — С СУБПИКСЕЛЕМ: целый индекс квантовал σ в две ступени
+          // (3,4/4,25), и предохранитель вырожденной серии честно браковал
+          // прогон, хотя канвас жил — квантовался ПРИБОР, а не эффект.
+          const tHalf = floorV + contrast * 0.5;
+          const iH = prof.findIndex((v) => v < tHalf);
+          const half = iH > 0 ? iH - 1 + (prof[iH - 1] - tHalf) / (prof[iH - 1] - prof[iH]) : NaN;
+          const sigmaPx = half > 0 ? half / 1.1774 : NaN;
+          // Пятно почти растворилось — здесь ничего не измерено, и «крест
+          // не виден» сказать нельзя: не видно ВООБЩЕ ничего.
+          const measurable = contrast >= 8 && Number.isFinite(sigmaPx);
+          const a = measurable ? anisotropy(im, cx, cy, sigmaPx) : { rings: [], worst: NaN };
+          row.push({ off, sigmaPx: measurable ? +sigmaPx.toFixed(2) : null, contrast: +contrast.toFixed(1), measurable, ...a });
         }
-        rows.push({ lv, row });
-        console.log(`   lv=${lv}: ` + row.map((q) => `${q.off}→${(q.worst * 100).toFixed(1)}%`).join("  "));
+        rows.push({ lv, dotSigma: DOT_SIGMA[lv] ?? 7, row });
+        console.log(`   lv=${lv} (пятно σ=${DOT_SIGMA[lv]}): ` + row.map((q) =>
+          `${q.off}→${q.measurable ? (q.worst * 100).toFixed(1) + "%" : "×"}(σ${q.sigmaPx ?? "—"} к${q.contrast})`).join("  "));
+        // Вырожденная серия — «НЕ ИЗМЕРЕНО»: замороженный канвас однажды
+        // выдал 19,0 % по всем ступеням и разъездам разом.
+        const meas = row.filter((q) => q.measurable);
+        if (meas.length < 3) {
+          die(`крест lv=${lv}: измеримых точек ${meas.length} из ${row.length} — пятно σ=${DOT_SIGMA[lv]} не подходит ступени`);
+        } else {
+          degenerate(meas.map((q) => q.worst), `крест lv=${lv}`);
+          degenerate(meas.map((q) => q.sigmaPx), `σ пятна lv=${lv}`);
+        }
       }
       await force(null);
-      results.cross = { offs, rows };
+      results.cross = { offs, rows, limit: LIMIT };
       // Порог: 15 % расхождения осей и диагоналей на кольце — там звезда уже
       // читается глазом на однородном фоне. Сообщаем максимальный БЕЗОПАСНЫЙ
-      // разъезд по всем ступеням; решение о числе — за дирижёром.
-      const LIMIT = Number(process.env.CROSS_LIMIT || 0.15);
+      // разъезд по каждой ступени; решение о числе — за дирижёром.
       let safe = Infinity;
       for (const { lv, row } of rows) {
         let last = 0;
+        let seen = false;
         for (const q of row) {
+          if (!q.measurable) continue;
+          seen = true;
           if (q.worst <= LIMIT) last = q.off;
           else break;
         }
-        console.log(`   ступень ${lv}: крест ≤ ${(LIMIT * 100).toFixed(0)} % держится до разъезда ${last}`);
-        if (last < safe) safe = last;
+        console.log(`   ступень ${lv}: крест ≤ ${(LIMIT * 100).toFixed(0)} % держится до разъезда ${seen ? last : "НЕ ИЗМЕРЕНО"}`);
+        if (seen && last < safe) safe = last;
       }
       results.cross.safe = safe;
-      console.log(`   ⇒ БЕЗОПАСНЫЙ ПОТОЛОК РАЗЪЕЗДА (по худшей ступени): ${safe}`);
+      console.log(`   ⇒ БЕЗОПАСНЫЙ ПОТОЛОК РАЗЪЕЗДА (по худшей ИЗМЕРЕННОЙ ступени): ${safe}`);
+    }
+
+    /* =========================================================
+       ФАЗА SEAM — ГДЕ ШИТЬ ПЕРЕХОД lv1→lv2.
+       σ² на границе непрерывен ПО ПОСТРОЕНИЮ, но σ² не видит ФОРМУ ядра:
+       звезда lv1 и пирамида lv2 при равной дисперсии — разные картинки, и
+       пиксельная проба поймала щелчок 4,8 при рядовом шаге 0,84. Здесь
+       меряется прямой A/B: |lv1@o₁(r) − lv2@o₂(r)| по сетке радиусов
+       перекрытия — если у шва есть место, где формы сходятся, его выбирает
+       замер, а не вкус. Третьим столбцом — честность обоих против blur(r).
+       ========================================================= */
+    async function phaseSeam() {
+      console.log("\n===== ШОВ lv1→lv2: A/B по перекрытию =====");
+      // Обращения измеренных кривых (cal-clean + cal-deep, генератор):
+      const o1 = (r) => interp([[1.697, 0], [1.899, 0.3], [2.121, 0.45], [2.375, 0.6], [2.703, 0.75], [3.073, 0.9], [3.419, 1.05], [3.832, 1.2], [4.21, 1.35], [4.588, 1.5], [4.981, 1.65]].map(([x, y]) => ({ x, y })), r);
+      const o2 = (r) => interp([[4.374, 0], [4.689, 0.3], [5.341, 0.45], [6.195, 0.6], [7.08, 0.75]].map(([x, y]) => ({ x, y })), r);
+      await release();
+      await call("Page.navigate", { url: BASE + "/" });
+      held = false;
+      await sleep(4200);
+      await scrollToSim();
+      await sleep(1400);
+      inf = await simInfo();
+      if (!inf?.hasCanvas) {
+        die("seam: канваса нет");
+        return;
+      }
+      await drag(0.3);
+      await settle();
+      const pos = (await simInfo()).pos;
+      const satCss = `saturate(${(1 - (pos / 100) * 0.15).toFixed(3)})`;
+      const rect = {
+        x: Math.round(inf.left + inf.w * 0.28),
+        y: Math.round(inf.top + inf.h * 0.3),
+        w: Math.round(inf.w * 0.44),
+        h: Math.round(inf.h * 0.36),
+      };
+      const meanAbs = (a, b) => {
+        let sum = 0,
+          n = 0;
+        for (let y = rect.y; y < rect.y + rect.h; y += 1) {
+          for (let x = rect.x; x < rect.x + rect.w; x += 1) {
+            sum += Math.abs(luma(px(a, x, y)) - luma(px(b, x, y)));
+            n += 1;
+          }
+        }
+        return sum / n;
+      };
+      const rows = [];
+      for (let r = 4.4; r <= 4.99; r += 0.06) {
+        const a1 = o1(r);
+        const a2 = o2(r);
+        if (!Number.isFinite(a1) || !Number.isFinite(a2)) continue;
+        await layers({ canvas: true, fb: false });
+        await force({ lv: 1, offset: a1, mix: 1 });
+        await sleep(280);
+        const im1 = await shot(null);
+        await force({ lv: 2, offset: a2, mix: 1 });
+        await sleep(280);
+        const im2 = await shot(null);
+        await layers({ canvas: false, fb: true, filter: `blur(${r.toFixed(2)}px) ${satCss}`, noScale: true });
+        await sleep(280);
+        const ref = await shot(null);
+        const ab = meanAbs(im1, im2);
+        const d1 = meanAbs(im1, ref);
+        const d2 = meanAbs(im2, ref);
+        rows.push({ r: +r.toFixed(2), o1: +a1.toFixed(3), o2: +a2.toFixed(3), ab: +ab.toFixed(3), d1: +d1.toFixed(3), d2: +d2.toFixed(3) });
+        console.log(`   r=${r.toFixed(2)}: lv1@${a1.toFixed(2)} против lv2@${a2.toFixed(2)} → A/B ${ab.toFixed(3)}; честность lv1 ${d1.toFixed(3)}, lv2 ${d2.toFixed(3)}`);
+      }
+      await force(null);
+      results.seam = { pos, rect, rows };
+      degenerate(rows.map((q) => q.ab), "seam: A/B по сетке");
+      const best = rows.reduce((w, q) => (q.ab < (w?.ab ?? Infinity) ? q : w), null);
+      if (best) console.log(`   ⇒ минимальный шов: r=${best.r} (A/B ${best.ab})`);
+    }
+
+    /* ФАЗА DIAGDRAG — почему умирает синтетическое перетаскивание. */
+    async function phaseDiagDrag() {
+      await release();
+      await call("Page.navigate", { url: BASE + "/" });
+      held = false;
+      await sleep(4200);
+      await scrollToSim();
+      await sleep(1200);
+      inf = await simInfo();
+      // Регистрируем свидетелей: какие события завершения видит контейнер.
+      await ev(`(()=>{window.__evt=[];const s=document.querySelectorAll(${Q})[${SIM}];
+        for(const t of ['pointerup','pointercancel','lostpointercapture','pointerdown'])
+          s.addEventListener(t,(e)=>window.__evt.push(t+':'+e.pointerId+':'+(e.isTrusted?'T':'S')+':'+Date.now()%100000));
+        return 0;})()`);
+      await ev(`(()=>{const s=document.querySelectorAll(${Q})[${SIM}];
+        const c=s.querySelector('canvas'); if(c){c.__probeTag='alpha';}
+        s.__probeTag='host'; return 0;})()`);
+      const canvasId = () => ev(`(()=>{const s=document.querySelectorAll(${Q})[${SIM}];
+        const c=s.querySelector('canvas');
+        return {sameHost:s.__probeTag==='host', sameCanvas:c?c.__probeTag==='alpha':null,
+          cw:c?c.width:0, cssW:c?c.style.width:null};})()`);
+      const withShots = !!process.env.SHOTS;
+      const withLayers = !!process.env.LAYERS;
+      const fine = !!process.env.FINE;
+      const part = process.env.FINEPART || "all";
+      const wantPre = fine && (part === "all" || part === "pre");
+      const wantSteps = fine && (part === "all" || part === "steps");
+      const wantClip = fine && (part === "all" || part === "clip");
+      console.log(`DIAGDRAG: шоты=${withShots} layers=${withLayers} мелкий=${fine} часть=${part}`);
+      if (wantPre) await layers({ canvas: true, fb: false });
+      for (let i = 0; i < 9; i += 1) {
+        const frac = wantSteps ? 0.251 + i * 0.0078 : 0.18 + i * 0.025;
+        await hold(frac);
+        await sleep(300);
+        if (withLayers) await layers({ canvas: true, fb: false });
+        await sleep(150);
+        if (wantClip) {
+          await ev(`(()=>{const c=document.querySelectorAll(${Q})[${SIM}].querySelector('canvas');
+            return c?c.style.clipPath:null;})()`);
+        }
+        if (withShots) {
+          await shot(null);
+          await sleep(120);
+          await shot(null);
+        }
+        const a = await simInfo();
+        const evts = await ev("JSON.stringify(window.__evt)");
+        const cid = await canvasId();
+        console.log(`   #${i} frac=${frac.toFixed(4)} pos=${a.pos} канвас=${JSON.stringify(cid)} события=${evts}`);
+      }
+      await release();
+    }
+
+    /* =========================================================
+       ФАЗА MATCH — ЧЕСТНОСТЬ КАНДИДАТА НА НАСТОЯЩЕЙ ФОТОГРАФИИ.
+       Решающий вопрос дыры 2,4…4,3 px: НАСКОЛЬКО кадр пары (ступень,
+       разъезд) отличается от честного blur(r) фолбэка — в пикселях, на
+       живом снимке, где артефакт и был бы виден человеку. σ² здесь не
+       судья: крест — четырёхлучевая структура, второй момент её не видит.
+       ========================================================= */
+    async function phaseMatch() {
+      console.log("\n===== ЧЕСТНОСТЬ ПРОТИВ ФОЛБЭКА (реальное фото) =====");
+      /** Кандидаты: r → чем его рисовать. Разъезды — из ИЗМЕРЕННОЙ таблицы
+          (обращение σ₀=4/10, прогон cal-clean 30 июля), не из формулы. */
+      const CAND = [
+        { r: 2.0, lv: 1, off: 0.41 },
+        { r: 2.6, lv: 1, off: 0.71 },
+        { r: 3.2, lv: 1, off: 0.95 },
+        { r: 3.8, lv: 1, off: 1.19 },
+        { r: 4.3, lv: 1, off: 1.42 },
+        { r: 4.3, lv: 2, off: 0.05 },
+        { r: 5.0, lv: 2, off: 0.31 },
+        { r: 6.0, lv: 2, off: 0.55 },
+      ];
+      await release();
+      await call("Page.navigate", { url: BASE + "/" });
+      held = false;
+      await sleep(4200);
+      await scrollToSim();
+      await sleep(1400);
+      inf = await simInfo();
+      if (!inf?.hasCanvas) {
+        die("match: канваса нет");
+        return;
+      }
+      // Позиция кладётся кликом и снапится сама (шаг 4) — severity после
+      // этого стабильна, и потеря насыщенности у GL известна точно.
+      await drag(0.3);
+      await settle();
+      const pos = (await simInfo()).pos;
+      const sat = 1 - (pos / 100) * 0.15;
+      const satCss = `saturate(${sat.toFixed(3)})`;
+      console.log(`   позиция ${pos?.toFixed?.(2)} %, насыщенность ${sat.toFixed(3)}`);
+      const rect = {
+        x: Math.round(inf.left + inf.w * 0.28),
+        y: Math.round(inf.top + inf.h * 0.3),
+        w: Math.round(inf.w * 0.44),
+        h: Math.round(inf.h * 0.36),
+      };
+      /**
+       * Две метрики разом: средняя |Δ| и ХУДШИЙ БЛОК 16×16.
+       * ⚠️ Локальная — обязательна (требование `dirizher`): крест четырёх
+       * тапов — ЛОКАЛЬНЫЙ артефакт, он живёт на точечных светах, и среднее
+       * по кадру утопило бы его на трёх бликах. Вердикт «кто честнее»
+       * обязан устоять на ОБЕИХ метриках.
+       */
+      const diff2 = (a, b) => {
+        let sum = 0,
+          n = 0;
+        const BS = 16;
+        let blockWorst = 0;
+        for (let by = rect.y; by + BS <= rect.y + rect.h; by += BS) {
+          for (let bx = rect.x; bx + BS <= rect.x + rect.w; bx += BS) {
+            let bsum = 0;
+            for (let y = by; y < by + BS; y += 1) {
+              for (let x = bx; x < bx + BS; x += 1) {
+                const d = Math.abs(luma(px(a, x, y)) - luma(px(b, x, y)));
+                sum += d;
+                bsum += d;
+                n += 1;
+              }
+            }
+            const bm = bsum / (BS * BS);
+            if (bm > blockWorst) blockWorst = bm;
+          }
+        }
+        return { mean: sum / n, block: blockWorst };
+      };
+      const meanAbs = (a, b) => diff2(a, b).mean;
+      // Пол шума прибора: два снимка ОДНОГО состояния.
+      await layers({ canvas: false, fb: true, filter: `blur(3px) ${satCss}`, noScale: true });
+      await sleep(350);
+      const n1 = await shot(null);
+      await sleep(250);
+      const n2 = await shot(null);
+      const noise = meanAbs(n1, n2);
+      console.log(`   пол шума (два снимка одного состояния): ${noise.toFixed(3)}`);
+      const rows = [];
+      for (const c of CAND) {
+        await layers({ canvas: false, fb: true, filter: `blur(${c.r}px) ${satCss}`, noScale: true });
+        await sleep(320);
+        const ref = await shot(null);
+        await layers({ canvas: true, fb: false });
+        await force({ lv: c.lv, offset: c.off, mix: 1 });
+        await sleep(320);
+        await layers({ canvas: true, fb: false });
+        await sleep(120);
+        const gl = await shot(process.env.MATCH_SAVE ? `kw-match-lv${c.lv}-r${c.r}` : null);
+        const d = diff2(gl, ref);
+        rows.push({ ...c, d: +d.mean.toFixed(3), dBlock: +d.block.toFixed(3) });
+        console.log(`   r=${c.r} px, lv${c.lv} o=${c.off} → Δ против blur(${c.r}): средняя ${d.mean.toFixed(3)}, худший блок 16×16 ${d.block.toFixed(3)}`);
+      }
+      await force(null);
+      // Пол шума 0,000 — это ДЕТЕРМИНИЗМ HEADLESS, а не фантастическая
+      // точность прибора; живой GPU телефона так не обещает (зона fizik).
+      results.match = { pos, noise: +noise.toFixed(3), rect, rows };
+      degenerate(rows.map((q) => q.d), "match: Δ по кандидатам");
+      // Вердикт по конкурирующим кандидатам одного радиуса — ОБЕИМИ метриками.
+      const byR = new Map();
+      for (const q of rows) {
+        if (!byR.has(q.r)) byR.set(q.r, []);
+        byR.get(q.r).push(q);
+      }
+      for (const [r, cands] of byR) {
+        if (cands.length < 2) continue;
+        const byMean = [...cands].sort((a, b) => a.d - b.d)[0];
+        const byBlock = [...cands].sort((a, b) => a.dBlock - b.dBlock)[0];
+        console.log(`   r=${r}: честнее по средней — lv${byMean.lv}@${byMean.off}; по худшему блоку — lv${byBlock.lv}@${byBlock.off}`);
+        if (byMean.lv !== byBlock.lv) {
+          die(`match r=${r}: метрики РАСХОДЯТСЯ в вердикте (средняя за lv${byMean.lv}, локальная за lv${byBlock.lv}) — крест реален для глаза, вилка кроссфейда, СТОП к дирижёру`);
+        }
+      }
     }
 
     /* =========================================================
@@ -1489,21 +1814,64 @@ async function main() {
           }
           console.log(`   lv=${rowA.lv}: ` + line.join("  "));
         }
-        const bad = fwd.filter((f) => !f.ok);
-        const worst = fwd.reduce((w, f) => (f.dAbs - f.tol > (w ? w.dAbs - w.tol : -1e9) ? f : w), null);
-        console.log(`   пар ${fwd.length}, вне допуска ${bad.length}` +
-          (worst ? `, худшая lv${worst.lv} o=${worst.off}: ${worst.ra.toFixed(2)} против ${worst.rb.toFixed(2)} px (допуск ${worst.tol.toFixed(2)})` : ""));
-        results.cal.forward = { pairs: fwd.length, bad: bad.length, worst };
         /* ⚠️ ЭТО И ЕСТЬ ГЕЙТ (решение dirizher, 30 июля): два эталона обязаны
            сойтись в РАДИУСЕ, который даёт пара (ступень, разъезд), допуск
            max(5 %, 0,3 px). Прежний гейт на ОБРАЩЕНИИ (разъезд для радиуса r)
            требовал точности от плохо обусловленной величины: у пола ступени
            dσ²/do → 0, и проценты σ² превращались в десятки процентов разъезда.
-           Обратная сторона осталась ниже — справочной диагностикой. */
-        if (fwd.length < 8) {
-          die(`гейт согласия (прямая сторона): сопоставимых пар всего ${fwd.length} — мало для вердикта`);
+           Обратная сторона осталась ниже — справочной диагностикой.
+
+           ДОМЕН ГЕЙТА — МЕХАНИЧЕСКИ ИЗ ПОСТРОЕННОГО РАСПИСАНИЯ (В1): гейт
+           судит пары, до которых расписанию есть дело, плюс один шаг сетки
+           запаса. Список пар руками не перечисляется НИКОГДА: домен
+           вычисляется прогоном скомпилированного `kawase-schedule` по всему
+           рабочему диапазону обеих плотностей — изменится расписание, домен
+           поедет за ним сам. Полы глубоких ступеней (чистые билинейные
+           пирамиды, самые негауссовы ядра цепочки) расписание обходит, и их
+           расхождение печатается СПРАВОЧНО, без вердикта. Провал В ДОМЕНЕ —
+           честный СТОП, второй раз домен не сужается. */
+        let domain = null;
+        try {
+          const sched = await import(
+            "file://" + process.cwd().replace(/\\/g, "/") + "/.tmp-test/lib/kawase-schedule.js"
+          );
+          const R_WORK = 0.013 * 1232 * 2; // DSF-кап 2; DSF 1 — подмножество
+          domain = new Map();
+          for (let r = 0.01; r <= R_WORK; r += 0.005) {
+            const p = sched.planChain(r, LEVELS);
+            if (p.lv < 1) continue;
+            const cur = domain.get(p.lv) ?? { min: Infinity, max: -Infinity };
+            cur.min = Math.min(cur.min, p.offset);
+            cur.max = Math.max(cur.max, p.offset);
+            domain.set(p.lv, cur);
+          }
+          const gridStep = OFFS.length > 1 ? OFFS[1] - OFFS[0] : 0.15;
+          for (const [lv, d] of domain) {
+            d.min = Math.max(0, d.min - gridStep);
+            d.max += gridStep;
+          }
+          console.log("   домен гейта (из расписания, ±шаг сетки): " +
+            [...domain.entries()].map(([lv, d]) => `lv${lv}: ${d.min.toFixed(2)}…${d.max.toFixed(2)}`).join("  "));
+        } catch (e) {
+          console.log("   ⚠️ скомпилированного расписания нет (.tmp-test) — домен не вычислен, гейт судит ВСЕ пары");
+        }
+        const inDomain = (f) => {
+          if (!domain) return true;
+          const d = domain.get(f.lv);
+          return !!d && f.off >= d.min && f.off <= d.max;
+        };
+        const bad = fwd.filter((f) => !f.ok && inDomain(f));
+        const badOut = fwd.filter((f) => !f.ok && !inDomain(f));
+        const judged = fwd.filter(inDomain);
+        const worst = bad.reduce((w, f) => (f.dAbs - f.tol > (w ? w.dAbs - w.tol : -1e9) ? f : w), null);
+        console.log(`   пар ${fwd.length} (в домене ${judged.length}), вне допуска в домене ${bad.length}` +
+          (badOut.length ? `; вне домена расходятся ${badOut.length} (справочно: ${badOut.map((f) => `lv${f.lv} o=${f.off}: ${f.ra.toFixed(2)}/${f.rb.toFixed(2)}`).join(", ")})` : "") +
+          (worst ? `; худшая в домене lv${worst.lv} o=${worst.off}: ${worst.ra.toFixed(2)} против ${worst.rb.toFixed(2)} px` : ""));
+        results.cal.forward = { pairs: fwd.length, judged: judged.length, bad: bad.length, badOut: badOut.length, worst };
+        if (judged.length < 8) {
+          die(`гейт согласия (прямая сторона): судимых пар всего ${judged.length} — мало для вердикта`);
         } else if (bad.length) {
-          die(`ГЕЙТ СОГЛАСИЯ ЭТАЛОНОВ ПРОВАЛЕН (прямая сторона): ${bad.length} пар из ${fwd.length} вне допуска max(5 %, 0,3 px)` +
+          die(`ГЕЙТ СОГЛАСИЯ ЭТАЛОНОВ ПРОВАЛЕН (прямая сторона, в домене расписания): ${bad.length} пар из ${judged.length}` +
             (worst ? `; худшая lv${worst.lv} o=${worst.off}: ${worst.ra.toFixed(2)} против ${worst.rb.toFixed(2)} px` : ""));
         }
 
@@ -1528,7 +1896,8 @@ async function main() {
     }
 
     /* ---------------- порядок фаз ---------------- */
-    const portOk = PHASE === "base" || PHASE === "sweep" ? true : await phaseHook();
+    const portOk =
+      PHASE === "base" || PHASE === "sweep" || PHASE === "diagdrag" ? true : await phaseHook();
     if (PHASE === "hook") {
       // фаза сама себе вердикт
     } else if (PHASE === "sweep") {
@@ -1539,6 +1908,12 @@ async function main() {
       if (portOk) await phaseCal();
     } else if (PHASE === "cross") {
       if (portOk) await phaseCross();
+    } else if (PHASE === "match") {
+      if (portOk) await phaseMatch();
+    } else if (PHASE === "diagdrag") {
+      await phaseDiagDrag();
+    } else if (PHASE === "seam") {
+      if (portOk) await phaseSeam();
     } else {
       await phaseBase();
       if (portOk) await phaseCal();

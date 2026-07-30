@@ -221,7 +221,7 @@ export function VisionBlur({
    * Рисуем, пока меняется расфокус или положение шторки, плюс ОДИН кадр
    * после остановки — иначе последнее движение осталось бы недорисованным.
    */
-  const restRef = useRef({ s: -1, clip: "", settled: false });
+  const restRef = useRef({ s: -1, clip: "", settled: false, force: undefined as unknown });
   const shouldRender = useCallback(() => {
     const st = restRef.current;
     // Текстура доехала — рисуем, чем бы ни занимался пользователь.
@@ -229,6 +229,21 @@ export function VisionBlur({
       texDirtyRef.current = false;
       st.settled = false;
       return true;
+    }
+    // ⚠️ ТИК ПОРТА КАЛИБРОВКИ (только dev; см. контракт в kawase.ts). Смена
+    // объекта в `window.__kawaseForce` — это «есть что рисовать»: без тика
+    // прибор был вынужден шевелить шторку синтетическим перетаскиванием ради
+    // каждой точки сетки, и однажды перетаскивание молча умерло посреди
+    // прогона — канвас застыл, а прибор мерил один кадр под разными
+    // подписями (поймал предохранитель вырожденной серии). В прод-сборке
+    // ветка вырезается минификатором вместе с портом.
+    if (process.env.NODE_ENV !== "production") {
+      const f = typeof window !== "undefined" ? window.__kawaseForce : undefined;
+      if (f !== st.force) {
+        st.force = f;
+        st.settled = false;
+        return true;
+      }
     }
     const s = severity.get();
     const clipNow = clip?.get() ?? "";
