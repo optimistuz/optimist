@@ -26,6 +26,7 @@
 import {
   LEVEL_REQ,
   OFFSET_MAX,
+  SWITCH_R,
   levelCeil,
   levelFloor,
   levelRadius,
@@ -84,6 +85,31 @@ console.log("\n== Дыр между ступенями нет ==");
       `потолок ступени ${lv} дотягивается до пола ступени ${lv + 1}`,
       ceil >= floorNext,
       `потолок ${ceil.toFixed(2)} против пола ${floorNext.toFixed(2)}`
+    );
+  }
+}
+
+console.log("\n== Точки переключения (seam-argmin) внутри перекрытий ==");
+{
+  check("точек переключения столько же, сколько ступеней", SWITCH_R.length === LEVEL_REQ.length);
+  for (let lv = 1; lv < LEVELS; lv += 1) {
+    const sw = SWITCH_R[lv - 1];
+    if (sw === null || sw === undefined) {
+      console.log(`       (ступень ${lv}: точка не назначена — работает до потолка)`);
+      continue;
+    }
+    // Точка обязана лежать в перекрытии: старшая ступень уже умеет этот
+    // радиус (пол ниже), младшая ещё умеет (потолок выше). Вне перекрытия
+    // «переключение» было бы прыжком через дыру.
+    check(
+      `точка ступени ${lv} (${sw}) не ниже пола ступени ${lv + 1}`,
+      sw >= levelFloor(lv + 1),
+      `пол ${levelFloor(lv + 1).toFixed(2)}`
+    );
+    check(
+      `точка ступени ${lv} (${sw}) не выше её потолка`,
+      sw <= levelCeil(lv) + 1e-9,
+      `потолок ${levelCeil(lv).toFixed(2)}`
     );
   }
 }

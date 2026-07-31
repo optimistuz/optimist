@@ -247,6 +247,20 @@ export function createKawase(
   const meshOut = new Mesh(gl, { geometry, program: out });
 
   let targets: RenderTarget[] = [];
+  /**
+   * ⚠️ ПАРНЫЙ FBO НУЛЕВОГО УРОВНЯ — для UP-прохода ступени 1.
+   *
+   * У глубины 1 не было НИ ОДНОГО UP-прохода (DOWN → OUT), и её ядро
+   * оставалось голой звездой четырёх тапов. Это давало сразу ТРИ измеренных
+   * симптома: щелчок ФОРМЫ на стыке lv1→lv2 (Δпикс 4,8 при рядовых 0,84 —
+   * σ² непрерывен, картинка нет), кросс-артефакт с разъезда 0,8 (у ступеней
+   * с UP — с 1,4–1,6) и застрявшую честность против blur(r) (~5,1 при
+   * хорошеющем lv2). Решение `dirizher`: ступень 1 получает UP-проход —
+   * DOWN(src→t0) → UP(t0→t0′) → OUT, ядро переходит в ту же семью, что
+   * lv2+. UP не может писать в t0, который сам читает, — нужен парный
+   * приёмник того же размера.
+   */
+  let target0b: RenderTarget | null = null;
   let width = 0;
   let height = 0;
   /** Текущая ширина канваса в CSS-пикселях (в отличие от `width` — буфера). */
@@ -278,7 +292,7 @@ export function createKawase(
    */
 
   const dropTargets = () => {
-    for (const t of targets) {
+    for (const t of [...targets, ...(target0b ? [target0b] : [])]) {
       // Освобождаем явно: цепочка пересобирается на каждый ресайз, и
       // забытые FBO копятся в видеопамяти молча.
       try {
@@ -289,6 +303,7 @@ export function createKawase(
       }
     }
     targets = [];
+    target0b = null;
   };
 
   function resize(w: number, h: number, cw: number) {
@@ -325,6 +340,12 @@ export function createKawase(
         })
       );
     }
+    // Парный приёмник нулевого уровня — см. объявление `target0b`.
+    target0b = new RenderTarget(gl, {
+      width: Math.max(1, Math.round((width * scale) / 2)),
+      height: Math.max(1, Math.round((height * scale) / 2)),
+      depth: false,
+    });
   }
 
   function render(
@@ -407,6 +428,17 @@ export function createKawase(
         up.uniforms.uOffset.value = offset;
         gl.renderer.render({ scene: meshUp, target: rt, clear: true });
         src = rt.texture;
+      }
+      // ⚠️ Ступень 1 — UP в ПАРНЫЙ приёмник (см. `target0b`): без него её
+      // ядро оставалось голой звездой, и картинка щёлкала ФОРМОЙ на стыке
+      // lv1→lv2 при непрерывном σ² (решение `dirizher`, 30 июля). Разъезд —
+      // тот же `offset`, что у DOWN: другой был бы новым свободным параметром.
+      if (lv === 1 && target0b) {
+        up.uniforms.tMap.value = src;
+        up.uniforms.uTexel.value = [1 / target0b.width, 1 / target0b.height];
+        up.uniforms.uOffset.value = offset;
+        gl.renderer.render({ scene: meshUp, target: target0b, clear: true });
+        src = target0b.texture;
       }
     }
 

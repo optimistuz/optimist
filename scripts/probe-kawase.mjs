@@ -857,6 +857,35 @@ async function main() {
     const force = (v) =>
       ev(v ? `window.__kawaseForce=${JSON.stringify(v)};0` : `delete window.__kawaseForce;0`);
 
+    /**
+     * Скомпилированное расписание — ЕДИНСТВЕННЫЙ источник кривых для фаз
+     * `match` и `seam` и для домена гейта. Зашитая в прибор копия таблицы
+     * уже один раз пережила смену ядра и молча предлагала СТАРЫЕ обращения —
+     * прибор, который носит собственную копию правды, врёт при первом же
+     * расхождении с ней.
+     */
+    let schedMod = null;
+    const loadSched = async () => {
+      if (schedMod) return schedMod;
+      try {
+        schedMod = await import(
+          "file://" + process.cwd().replace(/\\/g, "/") + "/.tmp-test/lib/kawase-schedule.js"
+        );
+      } catch {
+        die("нет скомпилированного расписания: npx tsc -p tsconfig.test.json");
+        schedMod = null;
+      }
+      return schedMod;
+    };
+    /** Обращение измеренной кривой ступени: радиус → разъезд (клампится краями). */
+    const offForRadius = (sched, lv, r) => {
+      const pts = sched.LEVEL_REQ[lv - 1].map(([o, req]) => ({ x: req, y: o }));
+      if (r <= pts[0].x) return 0;
+      const last = pts[pts.length - 1];
+      if (r >= last.x) return last.y;
+      return interp(pts, r);
+    };
+
     let inf = null;
 
     /**
@@ -1324,10 +1353,28 @@ async function main() {
        замер, а не вкус. Третьим столбцом — честность обоих против blur(r).
        ========================================================= */
     async function phaseSeam() {
-      console.log("\n===== ШОВ lv1→lv2: A/B по перекрытию =====");
-      // Обращения измеренных кривых (cal-clean + cal-deep, генератор):
-      const o1 = (r) => interp([[1.697, 0], [1.899, 0.3], [2.121, 0.45], [2.375, 0.6], [2.703, 0.75], [3.073, 0.9], [3.419, 1.05], [3.832, 1.2], [4.21, 1.35], [4.588, 1.5], [4.981, 1.65]].map(([x, y]) => ({ x, y })), r);
-      const o2 = (r) => interp([[4.374, 0], [4.689, 0.3], [5.341, 0.45], [6.195, 0.6], [7.08, 0.75]].map(([x, y]) => ({ x, y })), r);
+      const sched = await loadSched();
+      if (!sched) return;
+      /** Пара соседних ступеней: PAIR=1 → lv1/lv2, PAIR=2 → lv2/lv3… */
+      const lvA = Number(process.env.PAIR || 1);
+      const lvB = lvA + 1;
+      const ceilTop = Number(process.env.CEIL || NaN);
+      // Перекрытие: от пола старшей ступени до потолка младшей (потолок можно
+      // приподнять через CEIL — argmin ищется и за кросс-потолком, чтобы
+      // видеть, есть ли за ним минимум; итоговое число всё равно решают
+      // dirizher-правила, а не прибор).
+      const floorB = sched.levelFloor(lvB);
+      const ceilA = Number.isFinite(ceilTop) ? ceilTop : sched.levelCeil(lvA);
+      if (!(ceilA > floorB)) {
+        die(`seam lv${lvA}/lv${lvB}: перекрытия нет (потолок ${ceilA.toFixed(2)} ≤ пол ${floorB.toFixed(2)})`);
+        return;
+      }
+      const from = floorB + 0.02;
+      const to = ceilA - 0.02;
+      const stepR = Math.max((to - from) / 10, 0.02);
+      console.log(`\n===== ШОВ lv${lvA}→lv${lvB}: A/B по перекрытию ${from.toFixed(2)}…${to.toFixed(2)} =====`);
+      const o1 = (r) => offForRadius(sched, lvA, r);
+      const o2 = (r) => offForRadius(sched, lvB, r);
       await release();
       await call("Page.navigate", { url: BASE + "/" });
       held = false;
@@ -1361,15 +1408,15 @@ async function main() {
         return sum / n;
       };
       const rows = [];
-      for (let r = 4.4; r <= 4.99; r += 0.06) {
+      for (let r = from; r <= to + 1e-9; r += stepR) {
         const a1 = o1(r);
         const a2 = o2(r);
         if (!Number.isFinite(a1) || !Number.isFinite(a2)) continue;
         await layers({ canvas: true, fb: false });
-        await force({ lv: 1, offset: a1, mix: 1 });
+        await force({ lv: lvA, offset: a1, mix: 1 });
         await sleep(280);
         const im1 = await shot(null);
-        await force({ lv: 2, offset: a2, mix: 1 });
+        await force({ lv: lvB, offset: a2, mix: 1 });
         await sleep(280);
         const im2 = await shot(null);
         await layers({ canvas: false, fb: true, filter: `blur(${r.toFixed(2)}px) ${satCss}`, noScale: true });
@@ -1379,13 +1426,19 @@ async function main() {
         const d1 = meanAbs(im1, ref);
         const d2 = meanAbs(im2, ref);
         rows.push({ r: +r.toFixed(2), o1: +a1.toFixed(3), o2: +a2.toFixed(3), ab: +ab.toFixed(3), d1: +d1.toFixed(3), d2: +d2.toFixed(3) });
-        console.log(`   r=${r.toFixed(2)}: lv1@${a1.toFixed(2)} против lv2@${a2.toFixed(2)} → A/B ${ab.toFixed(3)}; честность lv1 ${d1.toFixed(3)}, lv2 ${d2.toFixed(3)}`);
+        console.log(`   r=${r.toFixed(2)}: lv${lvA}@${a1.toFixed(2)} против lv${lvB}@${a2.toFixed(2)} → A/B ${ab.toFixed(3)}; честность lv${lvA} ${d1.toFixed(3)}, lv${lvB} ${d2.toFixed(3)}`);
       }
       await force(null);
-      results.seam = { pos, rect, rows };
+      results.seam = { pair: [lvA, lvB], pos, rect, rows };
       degenerate(rows.map((q) => q.ab), "seam: A/B по сетке");
       const best = rows.reduce((w, q) => (q.ab < (w?.ab ?? Infinity) ? q : w), null);
-      if (best) console.log(`   ⇒ минимальный шов: r=${best.r} (A/B ${best.ab})`);
+      if (best) {
+        // Минимум ЕСТЬ или это плато? Плато = не из чего выбирать точку.
+        const spread = Math.max(...rows.map((q) => q.ab)) - best.ab;
+        const plateau = spread < Math.max(0.15 * best.ab, 0.1);
+        console.log(`   ⇒ минимальный шов lv${lvA}→lv${lvB}: r=${best.r} (A/B ${best.ab}); размах ${spread.toFixed(3)}${plateau ? " — ПЛАТО, минимум не выделен" : ""}`);
+        results.seam.best = { ...best, plateau };
+      }
     }
 
     /* ФАЗА DIAGDRAG — почему умирает синтетическое перетаскивание. */
@@ -1450,18 +1503,38 @@ async function main() {
        ========================================================= */
     async function phaseMatch() {
       console.log("\n===== ЧЕСТНОСТЬ ПРОТИВ ФОЛБЭКА (реальное фото) =====");
-      /** Кандидаты: r → чем его рисовать. Разъезды — из ИЗМЕРЕННОЙ таблицы
-          (обращение σ₀=4/10, прогон cal-clean 30 июля), не из формулы. */
-      const CAND = [
-        { r: 2.0, lv: 1, off: 0.41 },
-        { r: 2.6, lv: 1, off: 0.71 },
-        { r: 3.2, lv: 1, off: 0.95 },
-        { r: 3.8, lv: 1, off: 1.19 },
-        { r: 4.3, lv: 1, off: 1.42 },
-        { r: 4.3, lv: 2, off: 0.05 },
-        { r: 5.0, lv: 2, off: 0.31 },
-        { r: 6.0, lv: 2, off: 0.55 },
+      const sched = await loadSched();
+      if (!sched) return;
+      /**
+       * Кандидаты строятся ИЗ СКОМПИЛИРОВАННОГО расписания (обращение
+       * текущей LEVEL_REQ), а не из зашитого списка: зашитые разъезды уже
+       * пережили одну смену ядра и молча предлагали старое обращение.
+       * Радиусы — те же, что в историческом прогоне 30 июля: столбцы
+       * сравнимы между ядрами. Кандидат за пределами измеренной кривой
+       * ступени не выдумывается, а пропускается с пометкой.
+       */
+      const CAND = [];
+      const wants = [
+        ...[2.0, 2.6, 3.2, 3.8, 4.3].map((r) => ({ r, lv: 1 })),
+        ...[4.3, 5.0, 6.0].map((r) => ({ r, lv: 2 })),
+        ...(process.env.MATCH_EXTRA || "")
+          .split(";")
+          .filter(Boolean)
+          .map((s) => {
+            const [lv, r] = s.split("@").map(Number);
+            return { r, lv };
+          }),
       ];
+      for (const w of wants) {
+        const pts = sched.LEVEL_REQ[w.lv - 1];
+        const lo = pts[0][1];
+        const hi = pts[pts.length - 1][1];
+        if (w.r < lo - 1e-9 || w.r > hi + 1e-9) {
+          console.log(`   (lv${w.lv} при r=${w.r} вне измеренной кривой ${lo.toFixed(2)}…${hi.toFixed(2)} — пропущен)`);
+          continue;
+        }
+        CAND.push({ r: w.r, lv: w.lv, off: +offForRadius(sched, w.lv, w.r).toFixed(3) });
+      }
       await release();
       await call("Page.navigate", { url: BASE + "/" });
       held = false;
