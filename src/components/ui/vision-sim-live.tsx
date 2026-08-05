@@ -391,6 +391,7 @@ export function VisionSimLive({
           severity={severityMV}
           blurCoeff={blurCoeff}
           maxDiopters={maxDiopters}
+          step={step}
           satLoss={SAT_LOSS}
           onFail={() => setGlFailed(true)}
           clip={clipPath}

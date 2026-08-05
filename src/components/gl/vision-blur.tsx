@@ -33,6 +33,7 @@ export function VisionBlur({
   clip,
   blurCoeff,
   maxDiopters,
+  step,
   satLoss,
   canvasStyle,
   onFail,
@@ -49,6 +50,13 @@ export function VisionBlur({
   blurCoeff: number;
   /** Максимум дефекта по модулю — чтобы порог пола считался в ДИОПТРИЯХ. */
   maxDiopters: number;
+  /**
+   * Шаг подписи (дптр). ⚠️ Нужен НЕ для снапа — им живёт оболочка, — а
+   * чтобы цепочка знала ГРАНИЦЫ ТЕКУЩЕЙ ПОДПИСИ и не меняла глубину внутри
+   * неё: смена глубины стоит ~4× рядового шага и обязана совпадать с
+   * моментом, когда меняется число и звучит гаптика (§6-11).
+   */
+  step: number;
   /** Потеря насыщенности на максимуме. */
   satLoss: number;
   /**
@@ -197,7 +205,28 @@ export function VisionBlur({
           }
 
           const radius = s * blurCoeff * width;
-          kawase.render(texture, radius, 1 - s * satLoss, cover);
+          /**
+           * ⚠️ ПОЛОСА ПОДПИСИ. `aria-valuenow` — это ОКРУГЛЕНИЕ к ближайшей
+           * ступени (`snapAbs` в оболочке), поэтому число меняется в
+           * СЕРЕДИНАХ между ступенями (0,25 / 0,75 / 1,25 …), а покоится
+           * ручка НА ступенях. Полоса одной подписи — [label − step/2,
+           * label + step/2], и глубина цепочки обязана быть постоянной на
+           * всей полосе: тогда щелчок смены глубины (≈4× рядового шага,
+           * измерено на пяти границах) попадает ровно туда, где меняется
+           * число и звучит гаптика, а внутри подписи картинка не прыгает.
+           * ⚠️ Точка переключения при этом максимально удалена от положений
+           * ПОКОЯ — на четверть ступени: иначе субпиксельный сдвиг радиуса
+           * (ресайз, клапан renderScale) перекидывал бы глубину на
+           * НЕПОДВИЖНОЙ картинке, и гистерезис пришлось бы вводить руками.
+           */
+          // `d` (дптр по модулю) уже посчитана выше — для порога клапана.
+          const label = Math.min(maxDiopters, Math.max(0, Math.round(d / step) * step));
+          const k = maxDiopters > 0 ? (blurCoeff * width) / maxDiopters : 0;
+          const band: [number, number] = [
+            Math.max(0, label - step / 2) * k,
+            Math.min(maxDiopters, label + step / 2) * k,
+          ];
+          kawase.render(texture, radius, 1 - s * satLoss, cover, band);
         },
         dispose: () => {
           kawase.dispose();
@@ -205,7 +234,7 @@ export function VisionBlur({
         },
       };
     },
-    [hostRef, severity, blurCoeff, maxDiopters, satLoss]
+    [hostRef, severity, blurCoeff, maxDiopters, step, satLoss]
   );
 
   useEffect(() => () => void (kawaseRef.current = null), []);
@@ -221,7 +250,13 @@ export function VisionBlur({
    * Рисуем, пока меняется расфокус или положение шторки, плюс ОДИН кадр
    * после остановки — иначе последнее движение осталось бы недорисованным.
    */
-  const restRef = useRef({ s: -1, clip: "", settled: false, force: undefined as unknown });
+  const restRef = useRef({
+    s: -1,
+    clip: "",
+    settled: false,
+    force: undefined as unknown,
+    noBand: undefined as boolean | undefined,
+  });
   const shouldRender = useCallback(() => {
     const st = restRef.current;
     // Текстура доехала — рисуем, чем бы ни занимался пользователь.
@@ -239,8 +274,13 @@ export function VisionBlur({
     // ветка вырезается минификатором вместе с портом.
     if (process.env.NODE_ENV !== "production") {
       const f = typeof window !== "undefined" ? window.__kawaseForce : undefined;
-      if (f !== st.force) {
+      // Тот же тик — у порта негативного контроля полосы подписи: прибор
+      // взводит флаг между двумя проходами, и без тика второй проход мерил бы
+      // кадры, нарисованные ещё ПЕРВЫМ режимом.
+      const nb = typeof window !== "undefined" ? window.__kawaseNoBand : undefined;
+      if (f !== st.force || nb !== st.noBand) {
         st.force = f;
+        st.noBand = nb;
         st.settled = false;
         return true;
       }

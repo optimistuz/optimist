@@ -171,7 +171,13 @@ export type Kawase = {
     source: Texture,
     radius: number,
     saturate: number,
-    cover?: readonly [number, number, number, number]
+    cover?: readonly [number, number, number, number],
+    /**
+     * Полоса ТЕКУЩЕЙ ПОДПИСИ [lo, hi] в тех же CSS-пикселях, что `radius`:
+     * радиусы, которым соответствует одно и то же `aria-valuenow`. Глубина
+     * цепочки выбирается одна на всю полосу — см. `levelCoversBand`.
+     */
+    band?: readonly [number, number]
   ): void;
   dispose(): void;
 };
@@ -196,6 +202,38 @@ export type Kawase = {
 declare global {
   interface Window {
     __kawaseForce?: { lv: number; offset: number; mix?: number };
+    /**
+     * ⚠️ ВТОРОЙ ПОРТ (только dev): ВЫКЛЮЧИТЬ полосу подписи, вернув выбор
+     * глубины «по факту радиуса».
+     *
+     * Он существует ради НЕГАТИВНОГО КОНТРОЛЯ, а не ради отладки. Прибор,
+     * который только успешно проходит, однажды уже пропускал брак, честно
+     * рапортуя об успехе (белая точка, `cdp-hydration` в мёртвый порт).
+     * Вердикт «внутри подписи щелчка нет» стоит ровно столько, сколько стоит
+     * доказательство, что тот же прогон УМЕЕТ упасть: `probe-kawase sweep`
+     * повторяет проход с этим флагом и требует падения.
+     *
+     * В прод-сборке блока нет физически (см. контракт `__kawaseForce`).
+     */
+    __kawaseNoBand?: boolean;
+    /**
+     * ⚠️ ТРЕТИЙ ПОРТ (только dev): ЧТО ЦЕПОЧКА НАРИСОВАЛА НА САМОМ ДЕЛЕ —
+     * глубина, разъезд, рампа, радиус буфера и действовавшая полоса подписи.
+     *
+     * Читается прибором после каждого замера. Без него прибор судил бы о
+     * глубине по СВОЕЙ копии арифметики полосы — то есть проверял бы
+     * согласие с самим собой, а не с кадром.
+     *
+     * В прод-сборке блока нет физически (см. контракт `__kawaseForce`).
+     */
+    __kawaseLastPlan?: {
+      lv: number;
+      offset: number;
+      mix: number;
+      saturated: boolean;
+      rBuf: number;
+      band: readonly [number, number] | null;
+    };
   }
 }
 
@@ -352,7 +390,8 @@ export function createKawase(
     source: Texture,
     radius: number,
     saturate: number,
-    cover: readonly [number, number, number, number] = [1, 1, 0, 0]
+    cover: readonly [number, number, number, number] = [1, 1, 0, 0],
+    band?: readonly [number, number]
   ) {
     if (!targets.length || !source) return;
     const IDENTITY = [1, 1, 0, 0];
@@ -384,7 +423,18 @@ export function createKawase(
      * 14,93 px на одном и том же радиусе, отношение 2,04; у CSS-фолбэка,
      * взятого контролем, отношение 0,995–1,007.
      */
-    let plan = planChain(radius * allocRatio(), targets.length);
+    const ar = allocRatio();
+    let useBand = band;
+    if (process.env.NODE_ENV !== "production") {
+      // Негативный контроль: без полосы глубина снова выбирается по факту —
+      // ровно то поведение, при котором закон §6-11 нарушался.
+      if (typeof window !== "undefined" && window.__kawaseNoBand) useBand = undefined;
+    }
+    let plan = planChain(
+      radius * ar,
+      targets.length,
+      useBand ? [useBand[0] * ar, useBand[1] * ar] : undefined
+    );
     if (process.env.NODE_ENV !== "production") {
       const f = typeof window !== "undefined" ? window.__kawaseForce : undefined;
       if (f && f.lv >= 1) {
@@ -396,6 +446,26 @@ export function createKawase(
           offset: f.offset,
           mix: f.mix ?? 1,
           saturated: false,
+        };
+      }
+    }
+    if (process.env.NODE_ENV !== "production") {
+      // ⚠️ ПОРТ ОБРАТНОГО ЧТЕНИЯ (dev). Прибор обязан узнавать глубину цепочки
+      // ОТ САМОГО БРАУЗЕРА, а не пересчитывать её своей копией арифметики
+      // полосы: копия разошлась бы молча, и вердикт «внутри подписи глубина
+      // одна» доказывал бы согласие прибора с самим собой.
+      //
+      // Он же закрывает дыру, из-за которой фаза `sweep` выносила вердикт на
+      // диапазоне, где смены глубины НЕТ ВОВСЕ: там сравнение «щелчка» с шумом
+      // давало произвольный ответ. Теперь «судить нечем» — отдельный исход.
+      if (typeof window !== "undefined") {
+        window.__kawaseLastPlan = {
+          lv: plan.lv,
+          offset: plan.offset,
+          mix: plan.mix,
+          saturated: plan.saturated,
+          rBuf: radius * ar,
+          band: useBand ? [useBand[0] * ar, useBand[1] * ar] : null,
         };
       }
     }

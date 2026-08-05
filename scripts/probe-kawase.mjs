@@ -1117,26 +1117,6 @@ async function main() {
       const keepPhoto = !!process.env.PHOTO;
       console.log(`\n===== МЕЛКИЙ ПРОХОД rBuf ${from}…${to}, шаг ${step}` +
         `, кадр: ${keepPhoto ? "НАСТОЯЩЕЕ ФОТО" : "эталонный край"} =====`);
-      if (!(await prepare(6, "sweep", keepPhoto))) return;
-      await force(null);
-      inf = await simInfo();
-      const allocRatio = inf.cw && inf.ccw ? inf.cw / inf.ccw : DSF;
-      /**
-       * ⚠️ ПРЕСС — ДО ПЕРЕКРОЙКИ СЛОЁВ, и это найдено бисекцией, а не
-       * рассуждением. Если pointerdown происходит, когда прибор уже залез в
-       * инлайн-стили симулятора (клип канваса, скрытый хром), Chrome через
-       * ~2,3 с шлёт ДОВЕРЕННЫЙ pointercancel — доснап срабатывает, и все
-       * последующие движения зажатой кнопки игнорируются: прибор «ведёт»
-       * шторку, а мерит один кадр (два прогона подряд поймал предохранитель
-       * вырожденной серии). Пресс в НЕТРОНУТОМ состоянии живёт сколько
-       * угодно; перекройка слоёв после пресса безопасна.
-       */
-      await hold(JIG[0]);
-      await sleep(250);
-      await layers({ canvas: true, fb: false });
-      await sleep(150);
-      const rows = [];
-      let prevImg = null;
       /**
        * ⚠️ ГЛАВНЫЙ КРИТЕРИЙ ЗДЕСЬ — ПИКСЕЛЬНЫЙ, а не σ².
        *
@@ -1167,35 +1147,92 @@ async function main() {
         }
         return n ? sum / n : NaN;
       };
-      for (let r = from; r <= to + 1e-9; r += step) {
-        const frac = r / (allocRatio * COEF * inf.w);
-        if (!(frac > 0.02 && frac < 0.95)) continue;
-        await hold(frac);
-        await sleep(300);
+      /**
+       * ОДИН СПЛОШНОЙ ПРОХОД ПО РАДИУСУ. Вынесен в функцию ради негативного
+       * контроля: тот же проход повторяется с ВЫКЛЮЧЕННОЙ полосой подписи и
+       * обязан дать ПРОТИВОПОЛОЖНЫЙ вердикт.
+       *
+       * ⚠️ Каждый проход начинается с ПЕРЕЗАГРУЗКИ (`prepare`), и это не
+       * перестраховка. Пресс обязан случиться в НЕТРОНУТОМ состоянии: если
+       * pointerdown происходит, когда прибор уже залез в инлайн-стили
+       * симулятора (клип канваса, скрытый хром), Chrome через ~2,3 с шлёт
+       * ДОВЕРЕННЫЙ pointercancel — доснап срабатывает, и все последующие
+       * движения зажатой кнопки игнорируются: прибор «ведёт» шторку, а мерит
+       * один кадр (поймал предохранитель вырожденной серии). После первого
+       * прохода слои уже перекроены, поэтому второй проход прессовать в них
+       * НЕЛЬЗЯ — только по свежему документу.
+       */
+      let arRef = null;
+      const runPass = async (tag, noBand) => {
+        console.log(`\n--- ПРОХОД: ${tag} ---`);
+        if (!(await prepare(6, `sweep/${tag}`, keepPhoto))) return null;
+        await force(null);
+        // Флаг ставится ПОСЛЕ навигации: `window` у нового документа свой.
+        await ev(noBand ? "window.__kawaseNoBand=true;0" : "delete window.__kawaseNoBand;0");
+        const seen = await ev("!!window.__kawaseNoBand");
+        if (seen !== !!noBand) {
+          die(`${tag}: флаг __kawaseNoBand не встал (${seen} вместо ${!!noBand})`);
+          return null;
+        }
+        inf = await simInfo();
+        const ar = inf.cw && inf.ccw ? inf.cw / inf.ccw : DSF;
+        // Плотность буфера обязана совпасть между проходами, иначе сравнение
+        // вердиктов сравнивает два разных устройства.
+        if (arRef === null) arRef = ar;
+        else if (Math.abs(ar - arRef) > 1e-6) {
+          die(`${tag}: плотность буфера сменилась между проходами (${arRef} → ${ar}) — проходы несравнимы`);
+          return null;
+        }
+        await hold(JIG[0]);
+        await sleep(250);
         await layers({ canvas: true, fb: false });
         await sleep(150);
-        const a = await simInfo();
-        // Клип канваса читается В МОМЕНТ замера: если гонка вернула частичный
-        // клип, окно у 75 % ширины показывало бы резкий DOM, а не канвас,
-        // и «плато» было бы артефактом гонки, а не свойством цепочки.
-        const clipNow = await ev(`(()=>{const c=document.querySelectorAll(${Q})[${SIM}].querySelector('canvas');
-          return c?c.style.clipPath:null;})()`);
-        // Каждое положение снимается ДВАЖДЫ: разброс повторов — вот шум
-        // прибора, он ИЗМЕРЯЕТСЯ, а не назначается (критерий dirizher).
-        const img = await shot(null);
-        await sleep(120);
-        const img2 = await shot(null);
-        const rpt = +meanAbs(img, img2, win()).toFixed(3);
-        const m = edgeSigma2(img, inf);
-        const dPix = prevImg ? +meanAbs(img, prevImg, win()).toFixed(3) : null;
-        prevImg = img;
-        rows.push({ r: +r.toFixed(3), pos: a.pos, clip: clipNow, dPix, rpt, ...m });
-        console.log(`   rBuf=${r.toFixed(3)} (pos ${a.pos?.toFixed?.(3)}) → σ² ${String(m.sigma2).padStart(9)}` +
-          `  Δпикс за шаг ${dPix === null ? "—" : dPix.toFixed(3)}  повтор ${rpt}${m.valid ? "" : "  σ² НЕ ИЗМЕРЕНО"}`);
-      }
-      await release();
-      results.sweep = { allocRatio, from, to, step, rows };
-      degenerate(rows.map((q) => q.sigma2), `мелкий проход ${from}…${to}`);
+        const rows = [];
+        let prevImg = null;
+        for (let r = from; r <= to + 1e-9; r += step) {
+          const frac = r / (ar * COEF * inf.w);
+          if (!(frac > 0.02 && frac < 0.95)) continue;
+          await hold(frac);
+          await sleep(300);
+          await layers({ canvas: true, fb: false });
+          await sleep(150);
+          const a = await simInfo();
+          // Клип канваса читается В МОМЕНТ замера: если гонка вернула частичный
+          // клип, окно у 75 % ширины показывало бы резкий DOM, а не канвас,
+          // и «плато» было бы артефактом гонки, а не свойством цепочки.
+          const clipNow = await ev(`(()=>{const c=document.querySelectorAll(${Q})[${SIM}].querySelector('canvas');
+            return c?c.style.clipPath:null;})()`);
+          // ⚠️ ГЛУБИНА ЦЕПОЧКИ БЕРЁТСЯ У БРАУЗЕРА, а не считается здесь.
+          // Своя копия арифметики полосы означала бы, что прибор сверяет
+          // вердикт с самим собой; порт отдаёт то, что реально нарисовано.
+          const lp = await ev("window.__kawaseLastPlan ? JSON.parse(JSON.stringify(window.__kawaseLastPlan)) : null");
+          // Каждое положение снимается ДВАЖДЫ: разброс повторов — вот шум
+          // прибора, он ИЗМЕРЯЕТСЯ, а не назначается (критерий dirizher).
+          const img = await shot(null);
+          await sleep(120);
+          const img2 = await shot(null);
+          const rpt = +meanAbs(img, img2, win()).toFixed(3);
+          const m = edgeSigma2(img, inf);
+          const dPix = prevImg ? +meanAbs(img, prevImg, win()).toFixed(3) : null;
+          prevImg = img;
+          rows.push({
+            r: +r.toFixed(3), pos: a.pos, aria: a.now, clip: clipNow, dPix, rpt,
+            lv: lp ? lp.lv : null, offset: lp ? +lp.offset.toFixed(4) : null,
+            bandLo: lp && lp.band ? +lp.band[0].toFixed(3) : null,
+            bandHi: lp && lp.band ? +lp.band[1].toFixed(3) : null,
+            ...m,
+          });
+          console.log(`   rBuf=${r.toFixed(3)} (pos ${a.pos?.toFixed?.(3)}, подпись ${a.now}, lv ${lp ? lp.lv : "?"}) → σ² ${String(m.sigma2).padStart(9)}` +
+            `  Δпикс за шаг ${dPix === null ? "—" : dPix.toFixed(3)}  повтор ${rpt}${m.valid ? "" : "  σ² НЕ ИЗМЕРЕНО"}`);
+        }
+        await release();
+        degenerate(rows.map((q) => q.sigma2), `${tag}: мелкий проход ${from}…${to}`);
+        return rows;
+      };
+
+      const rows = await runPass("полоса ВКЛЮЧЕНА", false);
+      if (!rows) return;
+      results.sweep = { allocRatio: arRef, from, to, step, rows };
       /**
        * ВЕРДИКТ ПО КРИТЕРИЮ dirizher — ни одного назначенного порога:
        *  1) шаг ЧЕРЕЗ границу обязан попадать В РАЗБРОС шагов ВНУТРИ ветки
@@ -1205,27 +1242,217 @@ async function main() {
        * Граница подаётся через BORDER (rBuf настоящей точки переключения
        * построенного расписания).
        */
+      /* ======================================================================
+         ВЕРДИКТ ПО БУКВЕ §6-11 — судим по `aria-valuenow`, а не по числу,
+         переданному снаружи.
+
+         Закон говорит: «два соседних положения с ОДИНАКОВЫМ `aria-valuenow`
+         обязаны выглядеть одинаково». Значит шаг, на котором подпись
+         МЕНЯЕТСЯ, законен любой величины — там меняется число и звучит
+         гаптика. Судить надо шаги ВНУТРИ одной подписи.
+
+         Критерий двойной, и оба конца — без назначенных порогов:
+
+          1) СТРУКТУРНЫЙ, он же главный: ни одна смена глубины цепочки не
+             имеет права попасть ВНУТРЬ подписи. Глубина берётся у браузера
+             (`__kawaseLastPlan`), а не пересчитывается прибором.
+          2) ПИКСЕЛЬНЫЙ: худший внутриподписной шаг обязан быть ближе к
+             медиане внутриподписных, чем к шагу через САМО ПЕРЕКЛЮЧЕНИЕ —
+             то есть к измеренному в этом же прогоне размеру щелчка.
+
+         ⚠️ ЯКОРЬ ПИКСЕЛЬНОГО КОНЦА — ИМЕННО ШАГ ПЕРЕКЛЮЧЕНИЯ, а не «худший
+         шаг смены подписи». Прежняя редакция брала второе и выносила вердикт
+         даже там, где переключения в диапазоне НЕТ ВОВСЕ: тогда обе величины
+         были рядовыми шагами, критерий сравнивал шум с шумом и отвечал
+         произвольно. Именно так прогон 6,6…10,0 (весь внутри lv2) получил
+         ❌ на исправном коде. Теперь «переключения в диапазоне нет» — это
+         отдельный исход «СУДИТЬ НЕЧЕМ», а не вердикт.
+         ====================================================================== */
+      /**
+       * ⚠️ ВЕРДИКТ ВОЗВРАЩАЕТСЯ, А НЕ ВЫНОСИТСЯ ЗДЕСЬ: `ok:false` — законный
+       * исход для негативного контроля. Падением встречаются только случаи
+       * «СУДИТЬ НЕЧЕМ» — прибор обязан молчать, когда не может измерить.
+       */
+      const judge = (rr, tag) => {
+        // ⚠️ ПРОВАЛ ЧТЕНИЯ ПОДПИСИ — НЕ «подписи одинаковы». Если ручка не
+        // найдена, `aria` приходит null для ВСЕХ положений, `null === null`
+        // истинно, и прибор объявил бы «внутри подписи ровно», не измерив
+        // ничего. Ровно этот отказ проект уже оплачивал дважды.
+        const blind = rr.filter((q) => q.aria === null || q.aria === undefined).length;
+        if (blind) {
+          die(
+            `${tag}: у ${blind} из ${rr.length} положений НЕ ПРОЧИТАН aria-valuenow — ` +
+              `ручка [role=slider] не найдена. Судить по подписи нечем`
+          );
+          return null;
+        }
+        // ⚠️ И ТОЧНО ТАК ЖЕ — ПРОВАЛ ЧТЕНИЯ ГЛУБИНЫ. Если порт мёртв, `lv`
+        // приходит null для всех положений, «глубина не менялась» становится
+        // истиной по недоразумению, и структурный критерий объявил бы чистым
+        // прогон, в котором он ничего не видел.
+        const noPlan = rr.filter((q) => q.lv === null || q.lv === undefined).length;
+        if (noPlan) {
+          die(
+            `${tag}: у ${noPlan} из ${rr.length} положений НЕ ПРОЧИТАНА глубина цепочки — ` +
+              `порт window.__kawaseLastPlan мёртв. Судить о переключениях нечем`
+          );
+          return null;
+        }
+        const st = rr.slice(1).map((q, i) => ({
+          d: q.dPix,
+          lo: rr[i].r,
+          hi: q.r,
+          sameLabel: q.aria === rr[i].aria,
+          aria: q.aria,
+          switched: q.lv !== rr[i].lv,
+          lvFrom: rr[i].lv,
+          lvTo: q.lv,
+        }));
+        const noiseMax = Math.max(...rr.map((q) => q.rpt));
+        const inLabel = st.filter((s) => s.sameLabel).map((s) => s.d).filter(Number.isFinite);
+        const crossLabel = st.filter((s) => !s.sameLabel);
+        // ⚠️ БЕЗ СМЕНЫ ПОДПИСИ КРИТЕРИЯ НЕТ: он СРАВНИВАЕТ внутриподписные
+        // шаги со щелчком смены. Диапазон, целиком лежащий внутри одной
+        // подписи, раньше проходил молча — «смен подписи в диапазоне нет»
+        // печаталось, и прибор выходил с успехом, ничего не доказав.
+        const labels = [...new Set(rr.map((q) => q.aria))];
+        if (crossLabel.length < 2) {
+          die(
+            `${tag}: в диапазоне rBuf ${from}…${to} подпись меняется ${crossLabel.length} раз` +
+              ` (подписи: ${labels.join(", ")}) — нужно ≥2, чтобы в проход попала ЦЕЛАЯ полоса.` +
+              ` Раздвинь FROM/TO`
+          );
+          return null;
+        }
+        if (inLabel.length < 4) {
+          die(`${tag}: внутриподписных шагов всего ${inLabel.length} — судить не о чем`);
+          return null;
+        }
+        // ⚠️ НЕТ ПЕРЕКЛЮЧЕНИЯ — НЕТ И СУДА. Диапазон без смены глубины
+        // проходит любым расписанием, включая заведомо сломанное: там
+        // «внутри подписи ровно» — свойство гладкого участка, а не кода.
+        const switches = st.filter((s) => s.switched);
+        if (!switches.length) {
+          const seenLv = [...new Set(rr.map((q) => q.lv))];
+          die(
+            `${tag}: в диапазоне rBuf ${from}…${to} цепочка НЕ МЕНЯЕТ глубину ` +
+              `(всюду lv ${seenLv.join("/")}) — судить нечем. Сдвинь FROM/TO к точке ` +
+              `переключения: полоса подписи переносит её НИЖЕ границы расписания`
+          );
+          return null;
+        }
+        degenerate(inLabel, `${tag}: шаги внутри подписи`);
+        const sorted = [...inLabel].sort((a, b) => a - b);
+        const med = sorted[Math.floor(sorted.length / 2)];
+        const worstIn = Math.max(...inLabel);
+        const worstCross = Math.max(...crossLabel.map((s) => s.d).filter(Number.isFinite));
+        // Якорь — шаг через САМО переключение, измеренный здесь же.
+        const switchStep = Math.max(...switches.map((s) => s.d).filter(Number.isFinite));
+        const inLabelSwitch = switches.filter((s) => s.sameLabel);
+        const toMed = Math.abs(worstIn - med);
+        const toSwitch = Math.abs(switchStep - worstIn);
+        const ok = inLabelSwitch.length === 0 && toMed < toSwitch;
+        console.log(
+          `   ЗАКОН §6-11 [${tag}]: внутри подписи медиана ${med.toFixed(3)}, худший ${worstIn.toFixed(3)};` +
+            ` шаг через ПЕРЕКЛЮЧЕНИЕ ${switchStep.toFixed(3)}; худший шаг смены подписи ${worstCross.toFixed(3)};` +
+            ` шум повтора ${noiseMax.toFixed(3)}; подписи ${labels.join(" → ")}`
+        );
+        for (const s of switches) {
+          console.log(
+            `      переключение lv ${s.lvFrom}→${s.lvTo} на шаге rBuf ${s.lo.toFixed(3)}→${s.hi.toFixed(3)}` +
+              `, Δпикс ${Number(s.d).toFixed(3)} — подпись ${s.sameLabel ? "НЕ МЕНЯЕТСЯ (внутри подписи!)" : `меняется (${s.aria})`}`
+          );
+        }
+        console.log(
+          ok
+            ? `   ✅ внутри подписи ровно: худший ${worstIn.toFixed(3)} при медиане ${med.toFixed(3)};` +
+                ` щелчок ${switchStep.toFixed(3)} — ровно на смене подписи`
+            : inLabelSwitch.length
+              ? `   ❌ ПЕРЕКЛЮЧЕНИЕ ГЛУБИНЫ ВНУТРИ ПОДПИСИ: ${inLabelSwitch.length} шт.`
+              : `   ❌ ВНУТРИ ПОДПИСИ ЖИВЁТ ЩЕЛЧОК: худший ${worstIn.toFixed(3)} ближе к щелчку (${switchStep.toFixed(3)}), чем к медиане (${med.toFixed(3)})`
+        );
+        return {
+          ok, med, worstIn, worstCross, switchStep, noiseMax, labels, steps: st,
+          inLabelSwitch: inLabelSwitch.length,
+          switches: switches.map((s) => ({ lo: s.lo, hi: s.hi, lvFrom: s.lvFrom, lvTo: s.lvTo, d: s.d, sameLabel: s.sameLabel })),
+        };
+      };
+
+      const vOn = judge(rows, "полоса ВКЛЮЧЕНА");
+      if (!vOn) return;
+      results.sweep.law = { ...vOn, steps: undefined };
+      if (!vOn.ok) {
+        die(
+          vOn.inLabelSwitch
+            ? `ПЕРЕКЛЮЧЕНИЕ ГЛУБИНЫ ВНУТРИ ПОДПИСИ (${vOn.inLabelSwitch} шт.): ` +
+                vOn.switches.filter((s) => s.sameLabel)
+                  .map((s) => `lv ${s.lvFrom}→${s.lvTo} на rBuf ${s.lo}→${s.hi}`).join("; ")
+            : `ВНУТРИ ПОДПИСИ ЖИВЁТ ЩЕЛЧОК: худший внутриподписной шаг ${vOn.worstIn.toFixed(3)} ближе ` +
+                `к шагу через переключение (${vOn.switchStep.toFixed(3)}), чем к медиане внутриподписных (${vOn.med.toFixed(3)})`
+        );
+        return;
+      }
+
+      /* СПРАВОЧНО: где именно лёг щелчок относительно ожидаемой границы.
+         Вердикта НЕ выносит — закон судится по подписи выше. Полезно, чтобы
+         видеть, совпало ли переключение глубины с тем rBuf, который дало
+         расписание. */
       const border = Number(process.env.BORDER || NaN);
-      const ds = rows.slice(1).map((q, i) => ({ d: q.dPix, lo: rows[i].r, hi: q.r }));
-      const noiseMax = Math.max(...rows.map((q) => q.rpt));
       if (Number.isFinite(border)) {
-        const cross = ds.filter((s) => s.lo < border && s.hi >= border);
-        const inside = ds.filter((s) => !(s.lo < border && s.hi >= border)).map((s) => s.d);
-        if (!cross.length || inside.length < 4) {
-          die(`sweep: границе ${border} не хватает точек (через неё ${cross.length}, внутри веток ${inside.length})`);
-        } else {
-          degenerate(inside, "sweep: внутриветочные шаги");
+        const cross = vOn.steps.filter((s) => s.lo < border && s.hi >= border);
+        const inside = vOn.steps.filter((s) => !(s.lo < border && s.hi >= border)).map((s) => s.d);
+        if (cross.length && inside.length >= 4) {
           const worstCross = Math.max(...cross.map((s) => s.d));
           const insideMax = Math.max(...inside);
-          console.log(`   ГРАНИЦА ${border}: шаг через неё ${worstCross.toFixed(3)}; внутриветочные до ${insideMax.toFixed(3)}; шум повтора до ${noiseMax.toFixed(3)}`);
-          if (worstCross > insideMax + noiseMax) {
-            die(`ГРАНИЦА ${border} ВЫДЕЛЯЕТСЯ: шаг через неё ${worstCross.toFixed(3)} > максимум внутриветочных ${insideMax.toFixed(3)} + шум ${noiseMax.toFixed(3)}`);
-          } else {
-            console.log(`   ✅ граница неотличима от рядового шага`);
-          }
-          results.sweep.verdict = { border, worstCross, insideMax, noiseMax };
+          console.log(
+            `   (справочно) ожидаемая граница ${border}: шаг через неё ${worstCross.toFixed(3)}` +
+              `; прочие до ${insideMax.toFixed(3)}` +
+              `; смена подписи ${cross.every((s) => !s.sameLabel) ? "СОВПАЛА" : "НЕ совпала"}`
+          );
+          results.sweep.verdict = { border, worstCross, insideMax, noiseMax: vOn.noiseMax };
         }
       }
+
+      /* ======================================================================
+         НЕГАТИВНЫЙ КОНТРОЛЬ — «гейты доказываются ПАДЕНИЕМ, а не успехом».
+
+         Тот же проход, тот же критерий, единственная разница — полоса подписи
+         выключена dev-портом `window.__kawaseNoBand`, то есть глубина снова
+         выбирается по факту радиуса. Прогон ОБЯЗАН упасть. Если он проходит,
+         вердикт выше не стоит ничего: порт мёртв, правка не доехала до
+         браузера. Второй прежний повод — «в диапазоне нет смены глубины» —
+         теперь до этого места не доживает: его ловит сам `judge` исходом
+         «СУДИТЬ НЕЧЕМ».
+         ====================================================================== */
+      if (process.env.NEG === "0") {
+        console.log(
+          "\n   ⚠️ НЕГАТИВНЫЙ КОНТРОЛЬ ПРОПУЩЕН (NEG=0). Вердикт выше НИЧЕГО НЕ ДОКАЗЫВАЕТ:\n" +
+            "      прибор, который только успешно проходит, однажды уже пропускал брак."
+        );
+        return;
+      }
+      const rowsOff = await runPass("полоса ВЫКЛЮЧЕНА (негативный контроль)", true);
+      if (!rowsOff) return;
+      const vOff = judge(rowsOff, "полоса ВЫКЛЮЧЕНА");
+      if (!vOff) return;
+      results.sweep.negative = { ...vOff, steps: undefined };
+      if (vOff.ok) {
+        die(
+          "НЕГАТИВНЫЙ КОНТРОЛЬ НЕ УПАЛ: с ВЫКЛЮЧЕННОЙ полосой подписи прогон тоже прошёл " +
+            `(переключений внутри подписи ${vOff.inLabelSwitch}, худший внутриподписной ${vOff.worstIn.toFixed(3)}, ` +
+            `медиана ${vOff.med.toFixed(3)}, шаг переключения ${vOff.switchStep.toFixed(3)}). ` +
+            "Порт __kawaseNoBand мёртв — правка не доехала до браузера, и положительный вердикт " +
+            "выше НИЧЕГО НЕ ДОКАЗЫВАЕТ"
+        );
+        return;
+      }
+      console.log(
+        `\n   ✅ НЕГАТИВНЫЙ КОНТРОЛЬ СРАБОТАЛ: без полосы подписи тот же критерий БРАКУЕТ прогон` +
+          ` (переключений ВНУТРИ подписи ${vOff.inLabelSwitch} против ${vOn.inLabelSwitch} с полосой;` +
+          ` худший внутриподписной шаг ${vOff.worstIn.toFixed(3)} против ${vOn.worstIn.toFixed(3)}` +
+          ` при медианах ${vOff.med.toFixed(3)} / ${vOn.med.toFixed(3)}).`
+      );
+      await ev("delete window.__kawaseNoBand;0");
     }
 
     /* =========================================================
