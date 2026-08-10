@@ -13,6 +13,17 @@
  *   node scripts/bake-blur.mjs highlights <src> [dst]      слой светов для mix-blend:screen (этап 6)
  *   node scripts/bake-blur.mjs steps      <src> [dstDir]   3 ступени тизера дропа −6→−3→0 (этап 9/17)
  *
+ * Флаги (переопределяют дефолты; порядок любой):
+ *   --sigma=N --threshold=F --quality=N
+ *
+ * ⚠️ ФЛАГИ НУЖНЫ НЕ ДЛЯ УДОБСТВА. Дефолты здесь — общий рецепт, а радиус
+ * разлива светов у КАЖДОГО слоя свой: он обязан совпадать с радиусом
+ * расфокуса того эффекта, поверх которого слой ляжет (иначе тот же свет
+ * размазан тоньше или плотнее, чем его размазывает сам дефокус). Без флага
+ * это число пришлось бы прятать в дефолт скрипта — и следующий слой запёкся
+ * бы с чужой калибровкой. Команда с флагом воспроизводима и живёт в
+ * `src/content/photos.ts` рядом с ассетом.
+ *
  * Примеры:
  *   node scripts/bake-blur.mjs blur public/photos/interior.jpg
  *     → public/photos/interior-blur.jpg
@@ -121,17 +132,34 @@ const isMain =
   process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
 
 if (isMain) {
-  const [, , mode, src, dst] = process.argv;
+  const args = process.argv.slice(2);
+  const flags = {};
+  const pos = [];
+  for (const a of args) {
+    const m = /^--(sigma|threshold|quality)=(.+)$/.exec(a);
+    if (m) {
+      const v = Number(m[2]);
+      if (!Number.isFinite(v)) {
+        console.error(`Флаг --${m[1]} должен быть числом, получено «${m[2]}»`);
+        process.exit(1);
+      }
+      flags[m[1]] = v;
+    } else if (a.startsWith("--")) {
+      console.error(`Неизвестный флаг: ${a} (--sigma= | --threshold= | --quality=)`);
+      process.exit(1);
+    } else pos.push(a);
+  }
+  const [mode, src, dst] = pos;
   if (!mode || !src) {
     console.error(
       "Использование:\n" +
-        "  node scripts/bake-blur.mjs blur       <src> [dst]\n" +
-        "  node scripts/bake-blur.mjs highlights <src> [dst]\n" +
-        "  node scripts/bake-blur.mjs steps      <src> [dstDir]"
+        "  node scripts/bake-blur.mjs blur       <src> [dst] [--sigma=N] [--quality=N]\n" +
+        "  node scripts/bake-blur.mjs highlights <src> [dst] [--sigma=N] [--threshold=F] [--quality=N]\n" +
+        "  node scripts/bake-blur.mjs steps      <src> [dstDir] [--quality=N]"
     );
     process.exit(1);
   }
-  bake(mode, src, dst)
+  bake(mode, src, dst, flags)
     .then((res) => {
       const list = Array.isArray(res) ? res : [res];
       console.log("Запечено:");

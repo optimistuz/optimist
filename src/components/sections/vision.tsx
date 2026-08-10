@@ -88,6 +88,11 @@ export default function Vision() {
               signDisplay="minus"
               blurCoeff={0.013}
               depthMask
+              /* Халяция светов (шаг 7) пропом НЕ включается: есть ли у кадра
+                 что разливать — свойство самого кадра, поэтому карта слоёв
+                 живёт в ленивой машинерии (`vision-sim-live.tsx`), а
+                 происхождение ассета — в `content/photos.ts`. У этой улицы
+                 слой есть, у книги в помещении светов нет. */
               nudge
               hint={vision.hint}
               labels={vision.labels}
