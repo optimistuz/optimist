@@ -23,6 +23,7 @@
    неверна модель.
    ================================================================== */
 
+import { EMPTY_ALLOC, allocRatio, nextAlloc } from "./kawase-alloc";
 import {
   LEVEL_REQ,
   OFFSET_MAX,
@@ -433,6 +434,253 @@ console.log("\n== §6-11 ПО ПОСТРОЕНИЮ: внутри одной по
     console.log(
       `       (без полосы глубина едет внутри подписи в ${mixed} полосах из ${bands.length}: ` +
         `${Object.keys(perSim).map((s) => `${s} ${perSim[s]}`).join(", ")})`
+    );
+  }
+}
+
+console.log("\n== ЩЕЛЬ НОРМИРОВКИ: §6-11 на ПАРАХ раскладок ==");
+{
+  /* ⚠️ ЗАЧЕМ ЭТОТ БЛОК. Перебор выше берёт нормировку как «плотность ×
+     клапан» — то есть ПРЕДПОЛАГАЕТ, что цепочка размещена ровно под
+     текущий канвас. Она под него не размещена: `kawase.resize`
+     пересобирает буферы ТОЛЬКО НА РОСТ (`lib/kawase-alloc.ts`), а
+     радиус нормируется размещённым размером, `ar = width / cssWidth`.
+     После поворота экрана или ресайза окна эти два числа расходятся, и
+     `ar` принимает значения, которых в наборе «плотность × клапан» нет
+     ВООБЩЕ (пример: размещено 684 при 342 CSS; контейнер вырос до 400
+     при клапане 0,5 → запрос 400 ≤ 684, пересборки нет, ar = 1,71).
+
+     Если на таких `ar` полосу подписи не покрывает ни одна ступень,
+     `planChain` МОЛЧА откатывается к выбору по факту — и глубина цепочки
+     снова едет ВНУТРИ одной подписи. То есть утверждение «§6-11 выполнен
+     по построению» держалось бы на домене, который уже, чем реальный.
+     Поворот экрана — пункт (в) вечера с A54; знать ответ надо здесь.
+
+     ⚠️ ПРАВИЛО РОСТА НЕ ВОСПРОИЗВОДИТСЯ ЗДЕСЬ РУКАМИ — оно спрашивается
+     у `nextAlloc`, той самой функции, которую зовёт рендер. */
+
+  const SIMS = [
+    { name: "близорукость", maxD: 6, step: 0.5, coeff: 0.013 },
+    { name: "дальнозоркость", maxD: 3, step: 0.25, coeff: 0.01 },
+  ];
+  const WIDTHS = [312, 342, 382, 704, 928, 1184];
+  const DPRS = [1, 2, 3];
+  const SCALES = [1, 0.85, 0.7, 0.55, 0.5];
+  const MAX_DPR = 2;
+
+  /** Запрос буфера при данной раскладке — ровно как в `vision-blur.tsx`. */
+  const bufferFor = (cssW: number, dpr: number, sc: number) =>
+    Math.round(cssW * Math.min(dpr, MAX_DPR) * sc);
+
+  /** Достижимые нормировки: раскладка A, затем раскладка B. */
+  type Reach = { ar: number; alloc: number; cssW: number; densityAr: number; where: string };
+  const reach: Reach[] = [];
+  const singleAr = new Set<string>();
+  for (const dpr of DPRS) {
+    for (const sc of SCALES) singleAr.add((Math.min(dpr, MAX_DPR) * sc).toFixed(6));
+  }
+  for (const dpr of DPRS) {
+    for (const wA of WIDTHS) {
+      for (const scA of SCALES) {
+        for (const wB of WIDTHS) {
+          for (const scB of SCALES) {
+            // Первое размещение — раскладкой A, затем приходит B.
+            const a = nextAlloc(EMPTY_ALLOC, bufferFor(wA, dpr, scA), 100);
+            const b = nextAlloc(a, bufferFor(wB, dpr, scB), 100);
+            const ar = allocRatio(b.width, wB);
+            reach.push({
+              ar,
+              alloc: b.width,
+              cssW: wB,
+              // То, чем считала бы нормировку ПРЕЖНЯЯ формула (по плотности).
+              densityAr: Math.min(dpr, MAX_DPR) * scB,
+              where: `${wA}@${scA} → ${wB}@${scB}, DPR ${dpr} (размещено ${b.width}, ar ${ar.toFixed(3)})`,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  /* ⚠️ ВЫРОЖДЕННАЯ СЕРИЯ РОНЯЕТ ПРОГОН. Если пары не породили ни одной
+     нормировки сверх одиночного перебора, этот блок ничего не добавляет
+     к предыдущему и «проходит» вхолостую — а выглядит как доказательство.
+     Совпадение серии с уже известной — это «не измерено», а не «разницы
+     нет». */
+  const fresh = reach.filter((r) => !singleAr.has(r.ar.toFixed(6)));
+  check(
+    "пары раскладок породили нормировки, которых нет в одиночном переборе",
+    fresh.length > 0,
+    `новых ar: ${fresh.length} из ${reach.length} — перебор пар вырожден и ничего не проверяет`
+  );
+  {
+    const uniq = Array.from(new Set(reach.map((r) => r.ar.toFixed(3))))
+      .map(Number)
+      .sort((x, y) => x - y);
+    console.log(
+      `       (достижимых нормировок ${uniq.length}: от ${uniq[0].toFixed(2)} до ` +
+        `${uniq[uniq.length - 1].toFixed(2)}; одиночный перебор знал только ${singleAr.size} ` +
+        `значений, максимум 2,00)`
+    );
+  }
+
+  /** Полосы подписи при данной нормировке. Полоса в пикселях БУФЕРА
+      зависит только от размещённого размера: CSS-ширина сокращается
+      (radius = coeff·cssW·|D|/maxD, band_buf = band_css · ar). */
+  const bandsFor = (r: Reach) => {
+    const out: { lo: number; hi: number; label: number; where: string }[] = [];
+    for (const sim of SIMS) {
+      const k = ((sim.coeff * r.alloc) / sim.maxD);
+      for (let i = 0; i * sim.step <= sim.maxD + 1e-9; i += 1) {
+        const label = i * sim.step;
+        const lo = Math.max(0, label - sim.step / 2) * k;
+        const hi = Math.min(sim.maxD, label + sim.step / 2) * k;
+        if (hi <= 0) continue;
+        out.push({ lo, hi, label, where: `${sim.name}, ${label} дптр, ${r.where}` });
+      }
+    }
+    return out;
+  };
+
+  /* ⚠️ ЗДЕСЬ НЕТ ОТСЕВА «раскладок, которых не бывает». В одиночном
+     переборе он законен: клапан ниже 0,7 живёт только при |D| ≥ 1,5, и
+     проверять малую подпись при малом клапане значило бы браковать
+     расписание за небывалую раскладку. На ПАРАХ этот довод не работает:
+     размещённый размер достался от ДРУГОГО момента, и подпись «0,5 дптр»
+     прекрасно сочетается с буфером, выделенным когда-то под −6. */
+  {
+    let uncovered = 0;
+    let mixed = 0;
+    let worstErr = 0;
+    let checked = 0;
+    const exU: string[] = [];
+    const exM: string[] = [];
+    for (const r of reach) {
+      for (const b of bandsFor(r)) {
+        checked += 1;
+        let covered = false;
+        for (let lv = 1; lv <= LEVELS; lv += 1) {
+          if (levelCoversBand(lv, b.lo, b.hi)) {
+            covered = true;
+            break;
+          }
+        }
+        if (!covered) {
+          uncovered += 1;
+          if (exU.length < 5) exU.push(`${b.where}: полоса ${b.lo.toFixed(2)}…${b.hi.toFixed(2)}`);
+        }
+        // Тот же вопрос, но заданный САМОМУ планировщику: едет ли глубина
+        // внутри подписи. Покрытие — причина, это — следствие.
+        const seen = new Set<number>();
+        const SAMPLES = 24;
+        for (let t = 0; t <= SAMPLES; t += 1) {
+          const rad = b.lo + ((b.hi - b.lo) * t) / SAMPLES;
+          if (!(rad > 0)) continue;
+          const p = planChain(rad, LEVELS, [b.lo, b.hi]);
+          seen.add(p.lv);
+          if (p.mix >= 1 && p.lv > 0) {
+            const err = Math.abs(levelRadius(p.lv, p.offset) - rad) / rad;
+            if (err > worstErr) worstErr = err;
+          }
+        }
+        if (seen.size > 1) {
+          mixed += 1;
+          if (exM.length < 5) exM.push(`${b.where} → глубины ${Array.from(seen).join("/")}`);
+        }
+      }
+    }
+    check("полос для перебора пар набралось", checked >= 5000, `полос ${checked}`);
+    check(
+      "на КАЖДОЙ достижимой нормировке полосу закрывает одна ступень",
+      uncovered === 0,
+      `не покрыто ${uncovered} из ${checked}: ${exU.join(" | ")}`
+    );
+    check(
+      "глубина цепочки не едет внутри подписи ни на одной паре раскладок",
+      mixed === 0,
+      `полос со сменой глубины ${mixed} из ${checked}: ${exM.join(" | ")}`
+    );
+    check(
+      "радиус внутри подписи остаётся непрерывным и на парах",
+      worstErr < 0.002,
+      `худшая ошибка обращения ${(worstErr * 100).toFixed(3)} %`
+    );
+  }
+
+  /* НЕГАТИВНЫЙ КОНТРОЛЬ № 1 — ПРЕЖНЯЯ НОРМИРОВКА ПО ПЛОТНОСТИ.
+     Радиус нормируется размещённым размером (так делает рендер), а полоса —
+     плотностью × клапаном (так считала бы прежняя формула).
+
+     ⚠️ ПРИЗНАК ЗДЕСЬ НЕ «глубина едет внутри подписи»: с ЗАДАННОЙ полосой
+     глубина по построению одна на всю подпись, какой бы неверной полоса
+     ни была, — и такой контроль молчал бы на 2 139 расходящихся парах,
+     «подтверждая» исправность (проверено: 0 находок). Неверная нормировка
+     ломает ДРУГОЕ — соответствие выбранной ступени фактическому радиусу:
+     ступень подбирается под чужой диапазон, разъезд вылетает за потолок
+     своей ступени, и выданное размытие перестаёт следовать за ползунком.
+     Меряем ровно те три инварианта, что объявлены выше положительными. */
+  {
+    let offsetBad = 0;
+    let muddier = 0;
+    let worstErr = 0;
+    let worstAt = "";
+    let seenPairs = 0;
+    for (const r of reach) {
+      if (Math.abs(r.ar - r.densityAr) < 1e-9) continue; // здесь расхождения нет
+      seenPairs += 1;
+      for (const sim of SIMS) {
+        const kCss = (sim.coeff * r.cssW) / sim.maxD;
+        for (let i = 0; i * sim.step <= sim.maxD + 1e-9; i += 1) {
+          const label = i * sim.step;
+          const loCss = Math.max(0, label - sim.step / 2) * kCss;
+          const hiCss = Math.min(sim.maxD, label + sim.step / 2) * kCss;
+          if (hiCss <= 0) continue;
+          const wrongBand: [number, number] = [loCss * r.densityAr, hiCss * r.densityAr];
+          for (let t = 0; t <= 24; t += 1) {
+            const rad = (loCss + ((hiCss - loCss) * t) / 24) * r.ar;
+            if (!(rad > 0)) continue;
+            const p = planChain(rad, LEVELS, wrongBand);
+            if (p.lv > 0 && p.mix >= 1) {
+              if (p.offset > OFFSET_MAX[p.lv - 1] + 1e-9) offsetBad += 1;
+              if (levelFloor(p.lv) > rad + 1e-9) muddier += 1;
+              const err = Math.abs(levelRadius(p.lv, p.offset) - rad) / rad;
+              if (err > worstErr) {
+                worstErr = err;
+                worstAt = `${sim.name} ${label} дптр, ${r.where}`;
+              }
+            }
+          }
+        }
+      }
+    }
+    check(
+      "критерий БРАКУЕТ прежнюю нормировку по плотности",
+      worstErr >= 0.002 || offsetBad > 0 || muddier > 0,
+      `на ${seenPairs} расходящихся парах все три инварианта целы (худшая ошибка ` +
+        `${(worstErr * 100).toFixed(3)} %) — критерий не различает верную нормировку и неверную`
+    );
+    console.log(
+      `       (с нормировкой по плотности: разъезд за потолком ${offsetBad} раз, ` +
+        `ступень мутнее цели ${muddier} раз, худшая ошибка выдачи ` +
+        `${(worstErr * 100).toFixed(1)} % — ${worstAt})`
+    );
+  }
+
+  /* НЕГАТИВНЫЙ КОНТРОЛЬ № 2 — УМЕЕТ ЛИ САМ ПРЕДИКАТ СКАЗАТЬ «НЕ ПОКРЫТО».
+     Проверка покрытия, которая отвечает «да» всегда, доказывает не §6-11,
+     а собственную бесполезность. Берём полосу, заведомо не влезающую ни
+     в одну ступень: от «ниже пола lv2» до «выше потолка lv2» — ни одна
+     ступень не закрывает её обеими границами. */
+  {
+    const wide: [number, number] = [levelCeil(1) * 0.95, levelCeil(2) * 1.2];
+    let anyCovers = false;
+    for (let lv = 1; lv <= LEVELS; lv += 1) {
+      if (levelCoversBand(lv, wide[0], wide[1])) anyCovers = true;
+    }
+    check(
+      "предикат покрытия УМЕЕТ отказать (заведомо широкая полоса не покрыта)",
+      !anyCovers,
+      `полосу ${wide[0].toFixed(2)}…${wide[1].toFixed(2)} кто-то «покрыл» — предикат отвечает «да» всегда`
     );
   }
 }

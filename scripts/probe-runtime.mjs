@@ -36,7 +36,34 @@
  *   npx next start -p 3100        # dev ПОГАСИТЬ
  *   node scripts/probe-runtime.mjs
  *
- * Переменные: BASE, PORT (CDP), SWEEP_MS (по 30–45 с на прогон),
+ * ⚠️ ЖИВОЙ ТЕЛЕФОН (`ATTACH=1`) — ЭТО ДРУГОЙ СТЕНД, А НЕ ТОТ ЖЕ САМЫЙ.
+ * Прибор присоединяется к уже открытой вкладке Chrome на устройстве и
+ * НЕ НАВЯЗЫВАЕТ ЖЕЛЕЗО: ни метрик, ни DPR, ни CPU-троттлинга, ни тач-
+ * эмуляции (иначе он померил бы гибрид, которого нет в природе, — см.
+ * `scripts/lib/cdp-stand.mjs`). Плотность и вьюпорт ЧИТАЮТСЯ с телефона
+ * и печатаются: у A54 DPR 2,625, и все числа нормировки цепочки зависят
+ * от него. Подлинность устройства доказывается UA, вкладка обязана быть
+ * на экране. Числа attach-прогона С ЭМУЛЯЦИОННЫМИ НЕ СРАВНИВАЮТСЯ
+ * НАПРЯМУЮ — это разные стенды, и оба честные.
+ *
+ *   adb forward tcp:9821 localabstract:chrome_devtools_remote   # CDP с телефона
+ *   adb reverse tcp:3100 tcp:3100                               # стенд с этой машины
+ *   ATTACH=1 BASE=http://127.0.0.1:3100 node scripts/probe-runtime.mjs
+ *
+ * ⚠️ Свип на устройстве идёт СИНТЕТИЧЕСКИМ жестом (события в странице), и
+ * это законно ровно для замера времени кадра: пять минут живого пальца
+ * никто не отдаст. Но «шторка не крадёт вертикальный скролл» синтетикой
+ * НЕ ДОКАЗЫВАЕТСЯ — это отдельный пункт вечера, живым пальцем.
+ *
+ * РЕЖИМЫ (env `MODE`, дефолт `main`) — три ветки эффекта, у каждой своя цена:
+ *   main     — полный опыт: Kawase на канвасе + слой светов;
+ *   reduce   — `prefers-reduced-motion`: пружины нет, значение ставится
+ *              мгновенно; канвас ЖИВ (reduce гасит движение, а не эффект);
+ *   fallback — WebGL отказал: канваса нет вовсе, работает CSS-ветка
+ *              (потолок 22px) и слой светов со `scale-105`.
+ *   Цену слоя светов (A/B) прибор меряет во ВСЕХ трёх — слой живёт в каждой.
+ *
+ * Переменные: BASE, PORT (CDP), MODE, ATTACH, SWEEP_MS (по 30–45 с на прогон),
  * REST_MS, CPU, DSF, W, H, SEQ («W,B,A,B,A,B,A» — W выбрасывается),
  * OUT (JSON с сырыми числами), CHROME.
  *
@@ -91,15 +118,12 @@
  * ЗАНИЗИТЬ, завысить — нет. Вердикт «60 fps достигнуты» этим прибором
  * не выдаётся ни при каких числах; нужен прогон на живом A15/A54.
  */
-import http from "node:http";
-import crypto from "node:crypto";
 import fs from "node:fs";
-import { spawn } from "node:child_process";
+import { openStand } from "./lib/cdp-stand.mjs";
 
 const BASE = process.env.BASE || "http://127.0.0.1:3100";
-const CHROME =
-  process.env.CHROME || "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const PORT = Number(process.env.PORT || 9821);
+const MODE = process.env.MODE || "main";
 const SWEEP_MS = Number(process.env.SWEEP_MS || 45000);
 const REST_MS = Number(process.env.REST_MS || 60000);
 const CPU = Number(process.env.CPU || 4);
@@ -112,84 +136,6 @@ const die = (m) => {
   console.error("\n❌ ПРОГОН УПАЛ: " + m);
   process.exit(1);
 };
-
-function wsConnect(wsUrl) {
-  return new Promise((resolve, reject) => {
-    const u = new URL(wsUrl);
-    const req = http.request({
-      host: u.hostname,
-      port: u.port,
-      path: u.pathname + u.search,
-      headers: {
-        Connection: "Upgrade",
-        Upgrade: "websocket",
-        "Sec-WebSocket-Version": "13",
-        "Sec-WebSocket-Key": crypto.randomBytes(16).toString("base64"),
-      },
-    });
-    req.on("upgrade", (_res, socket) => {
-      socket.setNoDelay(true);
-      socket.on("error", () => {});
-      const listeners = new Set();
-      let buf = Buffer.alloc(0);
-      let parts = [];
-      const send = (text) => {
-        const payload = Buffer.from(text, "utf8");
-        const mask = crypto.randomBytes(4);
-        let header;
-        if (payload.length < 126) header = Buffer.from([0x81, 0x80 | payload.length]);
-        else if (payload.length < 65536) {
-          header = Buffer.alloc(4);
-          header[0] = 0x81;
-          header[1] = 0x80 | 126;
-          header.writeUInt16BE(payload.length, 2);
-        } else {
-          header = Buffer.alloc(10);
-          header[0] = 0x81;
-          header[1] = 0x80 | 127;
-          header.writeBigUInt64BE(BigInt(payload.length), 2);
-        }
-        for (let i = 0; i < payload.length; i++) payload[i] ^= mask[i & 3];
-        socket.write(Buffer.concat([header, mask, payload]));
-      };
-      socket.on("data", (chunk) => {
-        buf = Buffer.concat([buf, chunk]);
-        for (;;) {
-          if (buf.length < 2) return;
-          const fin = (buf[0] & 0x80) !== 0;
-          const opcode = buf[0] & 0x0f;
-          let len = buf[1] & 0x7f;
-          let off = 2;
-          if (len === 126) {
-            if (buf.length < 4) return;
-            len = buf.readUInt16BE(2);
-            off = 4;
-          } else if (len === 127) {
-            if (buf.length < 10) return;
-            len = Number(buf.readBigUInt64BE(2));
-            off = 10;
-          }
-          if (buf.length < off + len) return;
-          const payload = buf.subarray(off, off + len);
-          buf = buf.subarray(off + len);
-          if (opcode === 8) {
-            socket.end();
-            return;
-          }
-          parts.push(payload);
-          if (fin) {
-            const msg = Buffer.concat(parts).toString("utf8");
-            parts = [];
-            for (const fn of listeners) fn(msg);
-          }
-        }
-      });
-      resolve({ send, listeners, socket });
-    });
-    req.on("error", reject);
-    req.end();
-  });
-}
 
 const q = (arr) => {
   if (!arr.length) return null;
@@ -217,87 +163,53 @@ const q = (arr) => {
 };
 
 async function main() {
-  const chrome = spawn(
-    CHROME,
-    [
-      `--remote-debugging-port=${PORT}`,
-      "--user-data-dir=" + process.env.TEMP + "\\optimist-p2-runtime",
-      "--no-first-run",
-      "--no-default-browser-check",
-      "--force-color-profile=srgb",
-      "--hide-scrollbars",
+  if (!["main", "reduce", "fallback"].includes(MODE))
+    die(`неизвестный MODE=${MODE} (main | reduce | fallback)`);
+  const stand = await openStand({
+    port: PORT,
+    baseUrl: BASE,
+    profile: process.env.TEMP + "\\optimist-p2-runtime",
+    die,
+    args: [
       "--window-size=1500,1000",
       // rAF в headed Chrome умеет вставать у перекрытого окна: тогда прибор
       // мерил бы ОСТАНОВЛЕННУЮ страницу (проект это уже проходил).
+      // ⚠️ На устройстве этих ключей нет — там ту же дыру закрывает
+      // предохранитель «вкладка на экране» (`cdp-stand.mjs`).
       "--disable-backgrounding-occluded-windows",
       "--disable-renderer-backgrounding",
       "--disable-background-timer-throttling",
-      "about:blank",
     ],
-    { stdio: "ignore" }
-  );
+  });
+  const { call, ev } = stand;
   try {
-    let targets = null;
-    for (let i = 0; i < 60 && !targets; i++) {
-      await sleep(300);
-      targets = await new Promise((res) =>
-        http
-          .get({ host: "127.0.0.1", port: PORT, path: "/json/list" }, (r) => {
-            let d = "";
-            r.on("data", (c) => (d += c));
-            r.on("end", () => {
-              try {
-                res(JSON.parse(d));
-              } catch {
-                res(null);
-              }
-            });
-          })
-          .on("error", () => res(null))
-      );
-    }
-    if (!targets) die("Chrome не поднялся");
-    const page = targets.find((t) => t.type === "page");
-    const ws = await wsConnect(page.webSocketDebuggerUrl);
-    let id = 1;
-    const pending = new Map();
-    ws.listeners.add((raw) => {
-      const m = JSON.parse(raw);
-      if (m.id && pending.has(m.id)) {
-        pending.get(m.id)(m);
-        pending.delete(m.id);
-      }
-    });
-    const call = (method, params = {}) =>
-      new Promise((res) => {
-        pending.set(id, (m) => res(m.result));
-        ws.send(JSON.stringify({ id: id++, method, params }));
-      });
-    const ev = async (expr, awaitP = true) => {
-      const { result, exceptionDetails } = await call("Runtime.evaluate", {
-        expression: expr,
-        returnByValue: true,
-        awaitPromise: awaitP,
-      });
-      if (exceptionDetails) die("JS в странице упал: " + JSON.stringify(exceptionDetails).slice(0, 500));
-      return result?.value;
-    };
+    /* ⚠️ Ветвление стенда — ОДНОЙ строкой на весь прибор: на эмуляции железо
+       навязывается как прежде, на телефоне не трогается вовсе. */
+    await stand.applyStand({ W, H, DSF, CPU });
 
-    await call("Page.enable");
-    await call("Runtime.enable");
-    await call("Emulation.setDeviceMetricsOverride", {
-      width: W,
-      height: H,
-      deviceScaleFactor: DSF,
-      mobile: true,
-    });
-    await call("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+    /* Режимы — это ВЫБОР ПОЛЬЗОВАТЕЛЯ и ОТКАЗ ЖЕЛЕЗА, а не подмена железа:
+       оба законны и на живом устройстве. Ставятся ДО навигации. */
+    if (MODE === "reduce")
+      await call("Emulation.setEmulatedMedia", {
+        features: [{ name: "prefers-reduced-motion", value: "reduce" }],
+      });
+    if (MODE === "fallback")
+      await call("Page.addScriptToEvaluateOnNewDocument", {
+        source: `(()=>{const g=HTMLCanvasElement.prototype.getContext;
+          HTMLCanvasElement.prototype.getContext=function(t,...a){
+            if(String(t).indexOf('webgl')===0||t==='experimental-webgl') return null;
+            return g.call(this,t,...a);};})();`,
+      });
+
     await call("Page.navigate", { url: BASE + "/" });
     await sleep(2500);
-    await call("Emulation.setCPUThrottlingRate", { rate: CPU });
     await sleep(4000);
 
-    console.log(`СТЕНД: ${W}×${H} @dsf${DSF}, CPU ${CPU}×, прод ${BASE}`);
+    console.log(
+      stand.attach
+        ? `РЕЖИМ: ${MODE}, прод ${BASE} (живое устройство)`
+        : `СТЕНД: ${W}×${H} @dsf${DSF}, CPU ${CPU}×, прод ${BASE}, режим ${MODE}`
+    );
     const env = await ev(
       /* ⚠️ Прод-сборка доказывается ВЕРСИОНИРОВАННЫМ маршрутным чанком, и
          имя берётся из resource timing, а НЕ из `script[src]`: React убирает
@@ -329,20 +241,51 @@ async function main() {
     for (let k = 0; k < 60; k++) {
       up = await ev(`(()=>{const el=${SIM}[0]; const c=el.querySelector('canvas');
         const i=el.querySelector('[data-halation]'); const b=el.querySelector('img:not([data-halation])');
+        /* CSS-ветка расфокуса: живой (не display:none) узел с фильтром blur.
+           Признак берётся с ПИКСЕЛЬНОЙ стороны (computed style), а не из
+           разметки: включённость ветки решает браузер, а не наши ожидания. */
+        const f=[...el.querySelectorAll('div')].find(n=>{const s=getComputedStyle(n);
+          return s.display!=='none' && s.filter && s.filter.indexOf('blur')>=0;});
         return {cvs:!!c, cw:c?c.width:0, ch:c?c.height:0, ccw:c?c.clientWidth:0, cch:c?c.clientHeight:0,
+          css:!!f, cssFilter: f?getComputedStyle(f).filter:null,
+          halScaled: i?getComputedStyle(i.parentElement).transform!=='none':null,
           hal:!!i, halDone: i?(i.complete&&i.naturalWidth>0):false, halSrc:i?i.currentSrc:null,
           halNat:i?[i.naturalWidth,i.naturalHeight]:null,
           base:!!b, baseDone: b?(b.complete&&b.naturalWidth>0):false, baseSrc:b?b.currentSrc:null,
           baseNat:b?[b.naturalWidth,b.naturalHeight]:null};})()`);
-      if (up && up.cvs && up.halDone && up.baseDone) break;
+      // В фолбэке канваса НЕ БУДЕТ никогда — ждать его значило бы ждать вечно.
+      if (up && (MODE === "fallback" ? up.css : up.cvs) && up.halDone && up.baseDone) break;
       await sleep(500);
     }
-    if (!up?.cvs) die("канваса Kawase нет — GL не поднялся, мерить нечего");
+    /* ⚠️ ПРЕДОХРАНИТЕЛЬ РЕЖИМА — СИММЕТРИЧНЫЙ, а не смягчённый. У каждой ветки
+       свой признак, и «не тот» признак роняет прогон так же, как отсутствие
+       эффекта: прибор, принявший CSS-фолбэк за GL-ветку, померил бы ДРУГОЙ
+       эффект и подписался бы именем первого. Отказ WebGL, который не сработал,
+       обязан быть виден сразу, а не всплыть числами в отчёте владельцу. */
+    if (MODE === "fallback") {
+      if (up?.cvs)
+        die(
+          "MODE=fallback, а канвас Kawase ЖИВ — отказ WebGL не сработал, " +
+            "и прибор померил бы GL-ветку под именем фолбэка"
+        );
+      if (!up?.css)
+        die("CSS-ветки расфокуса нет в DOM (нет узла с filter: blur) — мерить нечего");
+    } else {
+      if (!up?.cvs) die("канваса Kawase нет — GL не поднялся, мерить нечего");
+    }
+    if (MODE === "reduce" && !env.reduce)
+      die("MODE=reduce, а страница не видит prefers-reduced-motion — эмуляция медиа не встала");
     if (!up.hal) die("слоя халяции нет в DOM ([data-halation]) — прибор мерил бы страницу без эффекта");
     if (!up.halDone) die(`слой халяции не декодирован (${up.halSrc})`);
-    console.log(
-      `  канвас ${up.cw}×${up.ch} буфера при ${up.ccw}×${up.cch} CSS → ratio ${(up.cw / up.ccw).toFixed(3)}`
-    );
+    if (MODE === "fallback")
+      console.log(
+        `  канваса нет (отказ WebGL), CSS-ветка: filter=${up.cssFilter}, ` +
+          `слой светов масштабирован как источник: ${up.halScaled ? "да (scale-105)" : "НЕТ"}`
+      );
+    else
+      console.log(
+        `  канвас ${up.cw}×${up.ch} буфера при ${up.ccw}×${up.cch} CSS → ratio ${(up.cw / up.ccw).toFixed(3)}`
+      );
     console.log(`  база:  ${up.baseSrc}  nat ${up.baseNat.join("×")}`);
     console.log(`  слой:  ${up.halSrc}  nat ${up.halNat.join("×")}`);
 
@@ -367,7 +310,11 @@ async function main() {
         const x0=r.left+2, x1=r.left+r.width-2, y=r.top+r.height*0.5;
         const dts=[]; const wch=[]; const sev=[]; const lab=new Set();
         let sMin=Infinity, sMax=-Infinity;
-        let lastW=window.__cvs.width;
+        /* ⚠️ В фолбэке канваса НЕТ, и клапан renderScale не существует как
+           явление: список смен останется пустым — это «клапана нет», а не
+           «клапан не шагал». Разница печатается в вердикте, а не теряется
+           в нуле. */
+        let lastW=window.__cvs? window.__cvs.width : 0;
         const t00=performance.now(); let last=t00; let i=0;
         const step=(now)=>{
           if(i++>0) dts.push(now-last);
@@ -379,7 +326,7 @@ async function main() {
             el2.dispatchEvent(new PointerEvent('pointermove',{clientX:x,clientY:y,pointerId:1,
               bubbles:true,isPrimary:true,pointerType:'touch',buttons:1}));
           }
-          const w=window.__cvs.width;
+          const w=window.__cvs? window.__cvs.width : 0;
           if(w!==lastW){ wch.push([Math.round(now-t00), lastW, w]); lastW=w; }
           /* Ход ручки берётся КАЖДЫЙ кадр, а не выборочно: при выборке каждый
              16-й кадр 6-секундный прогон дал «ход 76 %» на исправном свипе —
@@ -532,10 +479,14 @@ async function main() {
           `\n  >33 мс ${st.over33.toFixed(1)} %  >20 мс ${st.over20.toFixed(1)} %  fps(средн) ${st.fps.toFixed(
             1
           )}` +
-          `\n  шагов клапана: ${r.wch.length}${
-            r.wch.length ? " → " + r.wch.map((c) => `${c[0]}мс:${c[1]}→${c[2]}`).join(", ") : ""
+          `\n  шагов клапана: ${
+            MODE === "fallback"
+              ? "клапана НЕТ (канваса нет, renderScale не существует в этой ветке)"
+              : `${r.wch.length}${
+                  r.wch.length ? " → " + r.wch.map((c) => `${c[0]}мс:${c[1]}→${c[2]}`).join(", ") : ""
+                }`
           }` +
-          `\n  heap ${(r.heap / 1048576).toFixed(1)} MiB`
+          `\n  heap ${r.heap == null ? "недоступен (нет performance.memory)" : (r.heap / 1048576).toFixed(1) + " MiB"}`
       );
       return { st, wch: r.wch, wall: r.wall, frames: r.frames, heap: r.heap };
     };
@@ -589,21 +540,33 @@ async function main() {
         `\n  медиана кадра ${restSt.med.toFixed(1)} мс, >20 мс ${restSt.over20.toFixed(1)} %`
     );
 
-    /* ---------- контроль патча счётчика: под жестом он ОБЯЗАН считать ---------- */
-    const p = await touchDown();
-    await ev(`window.__draws=0`);
-    const ctl = await runLoop(4000, true);
-    const ctlDraws = await ev(`window.__draws`);
-    await touchUp(p);
-    console.log(
-      `  КОНТРОЛЬ счётчика: 3 с под жестом → ${ctlDraws} отрисовок ` +
-        `(${(ctlDraws / (ctl.frames || 1)).toFixed(1)} на кадр)`
-    );
-    if (ctlDraws === 0)
-      die(
-        "счётчик отрисовок показал НОЛЬ под живым жестом — патч не работает, " +
-          "и «0 в покое» ничего не доказывает (тот же дефект: патчили WebGL1, а ogl берёт WebGL2)"
+    /* ---------- контроль патча счётчика: под жестом он ОБЯЗАН считать ----------
+       ⚠️ В ФОЛБЭКЕ КОНТРОЛЯ НЕ СУЩЕСТВУЕТ, и это не поблажка. GL там отключён
+       намеренно, отрисовок нет ни в покое, ни под жестом — значит «0 в покое»
+       в этой ветке НИЧЕГО не доказывает про вечный цикл и не выдаётся за
+       доказательство. Контроль, который в принципе не может отличить исправное
+       от сломанного, обязан сказать «судить нечем», а не проходить. */
+    if (MODE === "fallback") {
+      console.log(
+        `  КОНТРОЛЬ счётчика: СУДИТЬ НЕЧЕМ — в фолбэке GL отключён, отрисовок нет ` +
+          `по построению (в покое насчитано ${draws}); «вечного цикла нет» этим прогоном НЕ доказано`
       );
+    } else {
+      const p = await touchDown();
+      await ev(`window.__draws=0`);
+      const ctl = await runLoop(4000, true);
+      const ctlDraws = await ev(`window.__draws`);
+      await touchUp(p);
+      console.log(
+        `  КОНТРОЛЬ счётчика: 3 с под жестом → ${ctlDraws} отрисовок ` +
+          `(${(ctlDraws / (ctl.frames || 1)).toFixed(1)} на кадр)`
+      );
+      if (ctlDraws === 0)
+        die(
+          "счётчик отрисовок показал НОЛЬ под живым жестом — патч не работает, " +
+            "и «0 в покое» ничего не доказывает (тот же дефект: патчили WebGL1, а ogl берёт WebGL2)"
+        );
+    }
 
     /* ---------- память: инвентарь отданных ассетов ---------- */
     // Доезд до второго симулятора, чтобы поднялись ОБА канваса.
@@ -644,10 +607,15 @@ async function main() {
       );
     }
     console.log(`  канвасы #vision: ${inv.cvs.map((c) => `${c.w}×${c.h} буфер / ${c.cw}×${c.ch} CSS`).join("  |  ")}`);
-    console.log(`  heap ${(inv.heap / 1048576).toFixed(1)} MiB`);
+    console.log(
+      `  heap ${inv.heap == null ? "недоступен" : (inv.heap / 1048576).toFixed(1) + " MiB"}`
+    );
 
     /* ---------- вердикты по кадру ---------- */
-    console.log("\n──────── ЦЕНА СЛОЯ ХАЛЯЦИИ ПО ВРЕМЕНИ КАДРА ────────");
+    console.log(
+      `\n──────── ЦЕНА СЛОЯ ХАЛЯЦИИ ПО ВРЕМЕНИ КАДРА (режим ${MODE}, ` +
+        `${stand.attach ? "ЖИВОЕ УСТРОЙСТВО" : "эмуляция"}) ────────`
+    );
     console.log("  прогон  состояние   средн, мс   кадров   >20 мс");
     for (const r of runs)
       console.log(
@@ -688,9 +656,16 @@ async function main() {
           `(${((pm / (means.reduce((s, v) => s + v, 0) / means.length)) * 100).toFixed(1)} % кадра)`
       );
 
-    ws.socket.end();
+    if (stand.attach) {
+      const bad = stand.forbiddenUsed();
+      if (bad.length) die(`прибор подменял железо на устройстве: ${bad.join(", ")}`);
+      console.log(
+        `\n  железо телефона за весь прогон не подменялось ни разу ` +
+          `(запрещённых вызовов: 0 из ${stand.calls.length} обращений CDP)`
+      );
+    }
   } finally {
-    chrome.kill();
+    stand.close();
   }
 }
 main().catch((e) => die(String(e && e.stack ? e.stack : e)));
