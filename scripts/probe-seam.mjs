@@ -1,99 +1,229 @@
 /**
- * СТЫК ШТОРКИ — разбор уже снятых кадров приёмки (offline, без браузера).
- * Прибор `priyomshchik`, введён шагом 7 этапа 6; кадры снимает
- * `probe-buyer-path.mjs`, здесь только измерение.
+ * ШОВ ШТОРКИ — ГЕОМЕТРИЧЕСКИЙ КРИТЕРИЙ (offline, без браузера).
+ * Кадры снимает `probe-buyer-path.mjs MODE=seam`, здесь только измерение.
  *
- * ⚠️ В РЕПОЗИТОРИИ, а не в `tmp-frames/` (та папка в `.gitignore`), потому что
- * «стык шторки пиксельно чист в покое и в движении» — ПОСТОЯННЫЙ пункт приёмки
- * симулятора, и мера этой чистоты обязана быть перезапускаемой. ⚠️ Кадры
- * и рамка `RECT` ниже привязаны к стенду A54 390×844 @2,625 — меняешь стенд,
- * меняй рамку, иначе окно замера уедет с кадра (ровно этим прибор и врал).
+ * ⚠️ ПРЕЖНИЙ КРИТЕРИЙ ЭТОГО ЖЕ ПРИБОРА ПРИЗНАН НЕГОДНЫМ (11 августа), и это
+ * главное, что нужно знать перед чтением кода. Он мерил ПЕРЕПАД ЯРКОСТИ
+ * соседних колонок по разные стороны шва и сравнивал его с «собственной
+ * текстурой кадра». Но по разные стороны шва лежат РАЗНЫЕ куски изображения
+ * — размытый и резкий, — поэтому мера отвечала про сюжет, а не про склейку:
+ * два прогона на ОДНОМ И ТОМ ЖЕ коде дали противоположные вердикты. Итог был
+ * записан честно: «стык в движении НЕ ИЗМЕРЕН, а не чист».
  *
- * ⚠️ ПЕРВЫЙ ЗАХОД ЭТОГО ПРИБОРА СОВРАЛ, И ВОТ ПОЧЕМУ (закон CLAUDE.md:
- * критерий обязан доказать, что явление вообще попало в окно замера):
- *  · на −6 дптр шва НЕТ ВОВСЕ — шторка на правом краю кадра, и «ступенька
- *    120» была границей КАДРА и фона страницы. Это исход «СУДИТЬ НЕЧЕМ»,
- *    а не провал: положение шва проверяется на попадание внутрь кадра;
- *  · окно захватывало КРУГЛУЮ РУЧКУ (40×40 CSS px в центре кадра) — она
- *    белая, и её кромка давала «ступеньку 20,9» на исправном шве. Полосы
- *    замера теперь обходят ручку по вертикали.
- * Мера ступеньки — против СОБСТВЕННОГО ФОНА кадра: максимальный перепад
- * соседних колонок вдали от шва (текстура листвы сама по себе рвётся
- * сильнее любого артефакта склейки).
+ * ЧТО ЗДЕСЬ ВМЕСТО НЕГО — метод, узаконенный CLAUDE.md для любого канваса,
+ * подменяющего или продолжающего DOM-слой: ПЕРЕКЛЮЧЕНИЕ СЛОЯ НА ОДНОМ
+ * УЧАСТКЕ, а не сравнение двух сторон границы. Прибор берёт ПАРУ кадров
+ * в одном положении шторки (канвас виден / канвас `visibility: hidden`),
+ * строит РАЗНОСТНУЮ МАСКУ — где канвас вообще что-то изменил — и спрашивает
+ * ровно один, геометрический вопрос: СОВПАДАЕТ ЛИ ПРАВЫЙ КРАЙ ЭТОЙ МАСКИ
+ * С ПОЛОЖЕНИЕМ РУЧКИ. Ручка читается СО СТРАНИЦЫ и приезжает сайдкаром
+ * (`tmp-frames/seam-pairs.json`): жёстко зашитая в прибор рамка уже однажды
+ * увела окно замера с кадра.
+ *
+ * Слой светов, сама ручка и подписи присутствуют в обоих кадрах пары
+ * одинаково и сокращаются в разности — измеряется ровно вклад канваса.
+ *
+ * ТРИ ИСХОДА, и третий обязателен:
+ *  · ✅ ГОДЕН — край маски совпал с ручкой в пределах допуска;
+ *  · ❌ БРАК — не совпал: канвас рисует не там, где обещает ползунок;
+ *  · ⚖️ СУДИТЬ НЕЧЕМ — явление не попало в диапазон замера. Два случая:
+ *    маска пуста или почти пуста (эффект слаб — сравнивать было бы шум
+ *    с шумом), и шов на самом краю кадра (на упоре −6 дптр стыка двух
+ *    сторон не существует ФИЗИЧЕСКИ). Закон CLAUDE.md прямой: критерий,
+ *    сравнивающий явление с фоном, обязан сперва доказать, что явление
+ *    вообще попало в диапазон.
+ *
+ * ⚠️ ГЕЙТ ДОКАЗЫВАЕТСЯ ПАДЕНИЕМ. В сайдкаре обязана быть пара `neg-…`
+ * с принудительно сдвинутой обрезкой: прибор, не поймавший заведомый сдвиг
+ * на 3 CSS px, «проходит» на любом коде. Отсутствие такой пары — провал
+ * прогона, а не повод для вердикта.
+ *
+ * Запуск:  node scripts/probe-buyer-path.mjs   (MODE=seam)
+ *          node scripts/probe-seam.mjs
  */
+import fs from "node:fs";
 import sharp from "sharp";
 
-const DSF = 2.625;
-const RECT = { l: 24, t: 150, w: 342, h: 257 }; // контейнер кадра, CSS px
-const CASES = [
-  { file: "tmp-frames/priem7-far-d1.png", label: "покой −1 дптр", leftPct: 16.6667 },
-  { file: "tmp-frames/priem7-far-d3.png", label: "покой −3 дптр", leftPct: 50 },
-  { file: "tmp-frames/priem7-mid-drag-to-6.png", label: "В ДВИЖЕНИИ (палец на стекле, −4,5)", leftPct: 78.3626 },
-  { file: "tmp-frames/priem7-far-d6.png", label: "покой −6 дптр", leftPct: 100 },
-];
+const SIDECAR = process.env.SIDECAR || "tmp-frames/seam-pairs.json";
+/** Допуск совпадения края маски с ручкой, CSS px: 1 px линии ручки +
+    сглаживание кромки обрезки. Меньше — ловили бы округление, больше —
+    пропустили бы сдвиг, который прибор обязан видеть. */
+const TOL_CSS = 2;
+/** Доля ширины кадра, ниже которой маска считается не состоявшейся. */
+const MIN_MASK_FRAC = 0.05;
 
-const px = (raw, info, x, y) => {
-  const i = (y * info.width + x) * info.channels;
-  return 0.2126 * raw[i] + 0.7152 * raw[i + 1] + 0.0722 * raw[i + 2];
-};
-/** Средняя яркость колонки x по ДВУМ полосам, обходящим круглую ручку. */
-function colMean(raw, info, x, bands) {
-  let s = 0, n = 0;
-  for (const [y0, y1] of bands) {
-    for (let y = y0; y < y1; y++) { s += px(raw, info, x, y); n++; }
-  }
-  return s / n;
+if (!fs.existsSync(SIDECAR)) {
+  console.error(
+    `❌ ПРОГОН УПАЛ: нет сайдкара ${SIDECAR}. Сначала снять пары:\n` +
+      `   MODE=seam node scripts/probe-buyer-path.mjs`
+  );
+  process.exit(1);
 }
-function maxAdjJump(raw, info, xFrom, xTo, bands) {
-  let prev = null, max = 0, at = 0;
-  for (let x = xFrom; x <= xTo; x++) {
-    const m = colMean(raw, info, x, bands);
-    if (prev !== null && Math.abs(m - prev) > max) { max = Math.abs(m - prev); at = x; }
-    prev = m;
+const pairs = JSON.parse(fs.readFileSync(SIDECAR, "utf8"));
+
+/** Средняя по строкам |A − B| для каждой физической колонки полосы. */
+async function diffColumns(fileOn, fileOff, rect, dsf) {
+  const [A, B] = await Promise.all(
+    [fileOn, fileOff].map((f) => sharp(f).raw().toBuffer({ resolveWithObject: true }))
+  );
+  if (A.info.width !== B.info.width || A.info.height !== B.info.height)
+    throw new Error(`кадры пары разного размера: ${A.info.width}×${A.info.height} против ${B.info.width}×${B.info.height}`);
+  const { width, height, channels } = A.info;
+  const x0 = Math.max(0, Math.round(rect.l * dsf));
+  const x1 = Math.min(width, Math.round((rect.l + rect.w) * dsf));
+  // Полосы обходят круглую кнопку ручки (центр кадра ±22 CSS px): она
+  // одинакова в обоих кадрах, но её сглаженная кромка добавляет шум.
+  const bands = [
+    [Math.round((rect.t + rect.h * 0.08) * dsf), Math.round((rect.t + rect.h * 0.32) * dsf)],
+    [Math.round((rect.t + rect.h * 0.68) * dsf), Math.round((rect.t + rect.h * 0.92) * dsf)],
+  ].map(([a, b]) => [Math.max(0, a), Math.min(height, b)]);
+  const cols = [];
+  for (let x = x0; x < x1; x += 1) {
+    let s = 0;
+    let n = 0;
+    for (const [ya, yb] of bands) {
+      for (let y = ya; y < yb; y += 1) {
+        const i = (y * width + x) * channels;
+        s += Math.abs(A.data[i] - B.data[i]);
+        s += Math.abs(A.data[i + 1] - B.data[i + 1]);
+        s += Math.abs(A.data[i + 2] - B.data[i + 2]);
+        n += 3;
+      }
+    }
+    cols.push({ x, d: n ? s / n : 0 });
   }
-  return { max, at };
+  return { cols, x0, x1 };
 }
 
 let bad = 0;
-for (const c of CASES) {
-  const { data: raw, info } = await sharp(c.file).raw().toBuffer({ resolveWithObject: true });
-  const seamCss = RECT.l + (RECT.w * c.leftPct) / 100;
-  const insideBy = Math.min(seamCss - RECT.l, RECT.l + RECT.w - seamCss); // CSS px до края кадра
-  // Полосы, обходящие ручку (центр ±22 CSS px) и кромки кадра
-  const bands = [
-    [Math.round((RECT.t + RECT.h * 0.08) * DSF), Math.round((RECT.t + RECT.h * 0.32) * DSF)],
-    [Math.round((RECT.t + RECT.h * 0.68) * DSF), Math.round((RECT.t + RECT.h * 0.92) * DSF)],
-  ];
-  if (insideBy < 8) {
-    console.log(`⚖️  ${c.label}: СУДИТЬ НЕЧЕМ — шов на самом краю кадра (${insideBy.toFixed(1)} CSS px до кромки), стыка двух сторон в кадре не существует`);
+let judged = 0;
+let negSeen = 0;
+let negCaught = 0;
+
+for (const p of pairs) {
+  const { rect, dsf } = p;
+  const seamCss = rect.l + (rect.w * p.leftPct) / 100;
+  const insideBy = Math.min(seamCss - rect.l, rect.l + rect.w - seamCss);
+  const isNeg = /^neg/.test(p.label);
+  if (isNeg) negSeen += 1;
+
+  if (insideBy < 6) {
+    console.log(
+      `⚖️  ${p.label} (ручка ${p.leftPct.toFixed(1)} %): СУДИТЬ НЕЧЕМ — шов на кромке кадра ` +
+        `(${insideBy.toFixed(1)} CSS px до края), стыка двух сторон в кадре не существует`
+    );
     continue;
   }
-  const xс = Math.round(seamCss * DSF);
-  const skip = Math.round(3.5 * DSF); // ручка-линия 1 CSS px + сглаживание
-  const L = maxAdjJump(raw, info, xс - Math.round(14 * DSF), xс - skip, bands);
-  const R = maxAdjJump(raw, info, xс + skip, xс + Math.round(14 * DSF), bands);
-  // Фон сравнения — текстура самого кадра вдали от шва, обе половины
-  const bgL = maxAdjJump(raw, info, Math.round((RECT.l + 10) * DSF), Math.round((seamCss - 20) * DSF), bands);
-  const bgR = maxAdjJump(raw, info, Math.round((seamCss + 20) * DSF), Math.round((RECT.l + RECT.w - 10) * DSF), bands);
-  const base = Math.max(bgL.max, bgR.max);
-  const worst = Math.max(L.max, R.max);
-  const limit = Math.max(base, 6);
-  const ok = worst <= limit;
-  if (!ok) bad++;
+
+  const { cols, x0, x1 } = await diffColumns(p.on, p.off, rect, dsf);
+  /* ⚠️ ОПОРНЫЙ ШУМ БЕРЁТСЯ ПРАВЕЕ САМОГО ШВА, А НЕ В ФИКСИРОВАННОЙ ДОЛЕ
+     КАДРА. Первая редакция брала правую пятую часть — и при ручке на 83 %
+     канвас заходил в эту самую полосу: «шум» вырастал до 7,9, порог — до
+     31,8, маска обнулялась, и прибор объявлял «СУДИТЬ НЕЧЕМ» на исправном
+     положении. Опора, в которую попадает измеряемое явление, — не опора.
+     Запас 4 CSS px правее шва оставлен нарочно: он позволяет шуму остаться
+     чистым при сдвиге обрезки, который прибор обязан ловить. */
+  const noiseFromCss = Math.max(seamCss + 4, rect.l + rect.w * 0.9);
+  const noiseToCss = rect.l + rect.w - 2;
+  if (noiseToCss - noiseFromCss < 8) {
+    console.log(
+      `⚖️  ${p.label} (ручка ${p.leftPct.toFixed(1)} %): СУДИТЬ НЕЧЕМ — правее шва не остаётся ` +
+        `полосы для опорного шума (${(noiseToCss - noiseFromCss).toFixed(1)} CSS px). ` +
+        `Порог пришлось бы брать из области, куда рисует сам канвас`
+    );
+    continue;
+  }
+  const tail = cols
+    .filter((c) => c.x >= Math.round(noiseFromCss * dsf) && c.x <= Math.round(noiseToCss * dsf))
+    .map((c) => c.d)
+    .sort((a, b) => a - b);
+  const noise = tail.length ? tail[Math.round(tail.length * 0.9)] : 0;
+  const thr = Math.max(2, noise * 4);
+  const on = cols.filter((c) => c.d > thr);
+  const frac = on.length / cols.length;
+
+  if (frac < MIN_MASK_FRAC) {
+    console.log(
+      `⚖️  ${p.label} (ручка ${p.leftPct.toFixed(1)} %): СУДИТЬ НЕЧЕМ — канвас изменил ` +
+        `${(frac * 100).toFixed(1)} % колонок кадра при пороге ${thr.toFixed(1)} ` +
+        `(шум ${noise.toFixed(1)}). Эффекта в диапазоне замера нет — сравнивать было бы шум с шумом`
+    );
+    continue;
+  }
+
+  /* Край маски — конец ПЕРВОГО непрерывного участка от левой кромки кадра:
+     канвас закрывает сплошную левую часть, и «последняя колонка выше порога»
+     по всему кадру поймала бы одинокий выброс где угодно правее шва. */
+  let edge = null;
+  let started = false;
+  let holeRun = 0;
+  const HOLE_MAX = Math.round(2 * dsf); // разрыв в 2 CSS px — сглаживание, не конец маски
+  for (const c of cols) {
+    if (c.d > thr) {
+      started = true;
+      edge = c.x;
+      holeRun = 0;
+    } else if (started) {
+      holeRun += 1;
+      if (holeRun > HOLE_MAX) break;
+    }
+  }
+  const edgeCss = (edge + 1) / dsf;
+  const delta = edgeCss - seamCss;
+  judged += 1;
+  const ok = Math.abs(delta) <= TOL_CSS;
+  const expected = p.expectShiftCss || 0;
+
+  if (isNeg) {
+    // У отрицательного контроля «годен» — это ПРОВАЛ ПРИБОРА.
+    const caught = Math.abs(delta) > TOL_CSS;
+    if (caught) negCaught += 1;
+    console.log(
+      `${caught ? "✅" : "❌"} ${p.label}: край маски ${edgeCss.toFixed(2)} CSS px, ручка ` +
+        `${seamCss.toFixed(2)} → расхождение ${delta.toFixed(2)} px ` +
+        `(вносили ${expected} px). ${
+          caught
+            ? "заведомый сдвиг ПОЙМАН — критерий видит смещение обрезки"
+            : "заведомый сдвиг НЕ пойман — критерий слеп, вердикты остальных пар недействительны"
+        }`
+    );
+    continue;
+  }
+
+  if (!ok) bad += 1;
   console.log(
-    `${ok ? "✅" : "❌"} ${c.label}: у шва макс перепад соседних колонок ${worst.toFixed(2)} ` +
-    `(слева ${L.max.toFixed(2)}, справа ${R.max.toFixed(2)}); собственная текстура кадра вдали от шва ${base.toFixed(2)} → порог ${limit.toFixed(2)}`
-  );
-  // Средние по 8 колонкам вплотную к шву с двух сторон — есть ли «полка»
-  const near = (from, to) => {
-    let s = 0, n = 0;
-    for (let x = from; x <= to; x++) { s += colMean(raw, info, x, bands); n++; }
-    return s / n;
-  };
-  console.log(
-    `     яркость вплотную: слева ${near(xс - Math.round(11 * DSF), xс - skip).toFixed(1)}  ` +
-    `справа ${near(xс + skip, xс + Math.round(11 * DSF)).toFixed(1)}  (разница сюжета, не артефакт)`
+    `${ok ? "✅" : "❌"} ${p.label} (valuenow ${p.valuenow}, ручка ${p.leftPct.toFixed(1)} %): ` +
+      `край маски ${edgeCss.toFixed(2)} CSS px против ручки ${seamCss.toFixed(2)} → ` +
+      `расхождение ${delta.toFixed(2)} px при допуске ±${TOL_CSS}` +
+      `\n     маска ${(frac * 100).toFixed(1)} % ширины кадра, порог ${thr.toFixed(1)}, шум ${noise.toFixed(1)}`
   );
 }
-console.log(bad ? `\n❌ провалов: ${bad}` : "\n✅ стык чист во всех судимых случаях");
+
+console.log("");
+if (!negSeen) {
+  console.error(
+    "❌ ПРОГОН УПАЛ: в сайдкаре нет отрицательного контроля (пары `neg-…` со сдвинутой " +
+      "обрезкой). Прибор, который только проходит, однажды уже пропускал брак"
+  );
+  process.exit(1);
+}
+if (negCaught < negSeen) {
+  console.error(
+    `❌ ПРОГОН УПАЛ: отрицательный контроль не пойман (${negCaught} из ${negSeen}) — ` +
+      "критерий слеп, и «шов чист» этим прогоном НЕ доказано"
+  );
+  process.exit(1);
+}
+if (!judged) {
+  console.error(
+    "❌ ПРОГОН УПАЛ: судить было нечего ни в одной паре — это «не измерено», а не «чисто»"
+  );
+  process.exit(1);
+}
+console.log(
+  bad
+    ? `❌ шов разъехался с ручкой в ${bad} из ${judged} судимых положений`
+    : `✅ шов совпадает с ручкой во всех ${judged} судимых положениях ` +
+        `(отрицательный контроль пойман ${negCaught}/${negSeen})`
+);
 process.exitCode = bad ? 1 : 0;

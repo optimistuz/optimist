@@ -28,6 +28,9 @@
  *              ищется тёмная плита blend-слоя над непрозрачным полом группы
  *   rail     — хит-тест кадра: какую его часть накрывает хром «Шкалы наводки»
  *   touch    — вертикальный жест по кадру: не крадёт ли шторка скролл страницы
+ *   seam     — пары кадров «слой виден / слой скрыт» в одном положении шторки
+ *              + сайдкар с положением ручки, прочитанным СО СТРАНИЦЫ; меряет
+ *              их `probe-seam.mjs` (геометрия, а не яркость)
  *
  * Прочие переменные: BASE, PORT, W, H, DSF, CPU. Кадры — в `tmp-frames/`.
  * Нужен живой `npm run dev` на :3000.
@@ -785,6 +788,122 @@ async function main() {
       const yAfter = await ev("Math.round(window.scrollY)");
       console.log(`  горизонтальный жест: valuenow ${before.valuenow} → ${after.valuenow}, scrollY ${yAfter}`);
       note(after.valuenow !== before.valuenow, `горизонтальный жест достаётся шторке (${before.valuenow} → ${after.valuenow})`);
+    }
+
+    if (MODE === "seam") {
+      /* ШОВ ШТОРКИ — СЪЁМКА ПАР ДЛЯ ГЕОМЕТРИЧЕСКОГО КРИТЕРИЯ.
+
+         ⚠️ ПРЕЖНИЙ КРИТЕРИЙ ПРИЗНАН НЕГОДНЫМ (11 августа): он мерил перепад
+         ЯРКОСТИ по разные стороны шва. По разные стороны шва лежат РАЗНЫЕ
+         куски изображения (размытый и резкий) — такой замер меряет сюжет,
+         а не шов, и два прогона на одном коде дали противоположные вердикты.
+
+         Метод, узаконенный CLAUDE.md: переключение слоя на ОДНОМ участке.
+         Снимаем ПАРУ кадров в одном положении шторки — канвас виден и канвас
+         `visibility: hidden` — и спрашиваем ГЕОМЕТРИЮ: где кончается область,
+         которую канвас изменил. Эта граница обязана совпасть с положением
+         ручки, прочитанным СО СТРАНИЦЫ (а не с зашитой в прибор рамкой:
+         жёстко зашитый RECT уже однажды увёл окно замера с кадра).
+
+         Слой светов, ручка и подписи присутствуют в ОБОИХ кадрах пары
+         одинаково и сокращаются в разности — измеряется ровно вклад канваса.
+
+         Пара `neg` — ОТРИЦАТЕЛЬНЫЙ КОНТРОЛЬ: обрезка канваса принудительно
+         сдвинута на 3 CSS px. Прибор, не поймавший её, не прибор. */
+      console.log(`\n──── ШОВ ШТОРКИ: пары «слой виден / слой скрыт» ────`);
+      await scrollTo(0);
+      for (let k = 0; k < 40; k++) {
+        if (await ev(`${HANDLE(0)}.getAttribute('tabindex')==='0'`)) break;
+        await sleep(500);
+      }
+      const CVS = `${SIM(0)}.querySelector('canvas')`;
+      const pairs = [];
+      const SHIFT_CSS = 3;
+      const CASES = [
+        { d: 1, label: "d1", shift: 0 },
+        { d: 3, label: "d3", shift: 0 },
+        { d: 4.5, label: "d45", shift: 0 },
+        { d: 6, label: "d6", shift: 0 }, // на упоре шва нет — ждём «судить нечем»
+        { d: 2, label: "hold-палец-на-стекле", shift: 0, hold: true },
+        { d: 3, label: "neg-3px", shift: SHIFT_CSS },
+      ];
+      /* ⚠️ «ПАЛЕЦ НА СТЕКЛЕ» — И ЧЕСТНАЯ ГРАНИЦА МЕТОДА. Пара кадров по
+         построению снимается в ОДНОМ положении шторки: иначе разность мерила
+         бы перемещение, а не шов. Значит «во время движения» этим методом
+         недостижимо в принципе; достижимо «касание не отпущено, положение
+         удержано» — палец на стекле, пружина досняпилась, канвас живой.
+         Разницу не прячем: приёмка формулируется в этих словах. */
+      const dragHold = async (dptr) => {
+        const r = (await state(0)).rect;
+        const y = r.t + r.h * 0.5;
+        const cur = parseFloat((await state(0)).left) || 0;
+        const inside = (x) => Math.min(r.l + r.w - 3, Math.max(r.l + 3, x));
+        const x0 = inside(r.l + (r.w * cur) / 100);
+        const x1 = inside(r.l + r.w * Math.min(0.998, dptr / 6));
+        const tp = (x) => [{ x: Math.round(x), y: Math.round(y), id: 1, radiusX: 12, radiusY: 12, force: 1 }];
+        await call("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: tp(x0) });
+        for (let k = 1; k <= 14; k++) {
+          await call("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: tp(x0 + ((x1 - x0) * k) / 14) });
+          await sleep(45);
+        }
+        await sleep(1600); // пружина досняпилась, палец НЕ отпущен
+        return state(0);
+      };
+
+      for (const c of CASES) {
+        const st = c.hold ? await dragHold(c.d) : await dragTo(0, c.d, 6);
+        const rect = st.rect;
+        if (!st.hasCanvas) {
+          console.log(`⚖️  ${c.label}: канваса нет — GL не поднялся, пары не существует`);
+          continue;
+        }
+        // Обрезка сдвигается ЯВНО и проверяется чтением computed-стиля:
+        // «сдвинул» без подтверждения — это тот же необоснованный вывод.
+        let shiftedOk = true;
+        if (c.shift) {
+          const pct = await ev(
+            `(()=>{const cv=${CVS}; const r=${SIM(0)}.getBoundingClientRect();
+              const cur=parseFloat(${HANDLE(0)}.style.left)||0;
+              const p=cur + (${c.shift}/r.width)*100;
+              cv.style.clipPath='inset(0 '+(100-p)+'% 0 0)';
+              return getComputedStyle(cv).clipPath;})()`
+          );
+          shiftedOk = !!pct && pct !== "none";
+          console.log(`  (отрицательный контроль: обрезка сдвинута на ${c.shift} CSS px → ${pct})`);
+        }
+        const on = await shot(`seam-${c.label}-on`);
+        await ev(`(()=>{${CVS}.style.visibility='hidden'; return 0;})()`);
+        await sleep(500);
+        const vis = await ev(`getComputedStyle(${CVS}).visibility`);
+        if (vis !== "hidden") {
+          console.log(`❌ ${c.label}: канвас не скрылся (visibility=${vis}) — пара недействительна`);
+          fail.push(`${c.label}: слой не выключился`);
+          continue;
+        }
+        const off = await shot(`seam-${c.label}-off`);
+        await ev(`(()=>{${CVS}.style.visibility=''; ${CVS}.style.clipPath=''; return 0;})()`);
+        if (c.hold) await call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+        await sleep(400);
+        pairs.push({
+          label: c.label,
+          valuenow: st.valuenow,
+          leftPct: parseFloat(st.left) || 0,
+          expectShiftCss: c.shift,
+          shiftedOk,
+          rect,
+          dsf: DSF,
+          on: on.file,
+          off: off.file,
+        });
+        console.log(
+          `  ${c.label}: ручка ${(parseFloat(st.left) || 0).toFixed(2)} % (valuenow ${st.valuenow}), ` +
+            `кадр ${Math.round(rect.w)}×${Math.round(rect.h)} CSS @${DSF}`
+        );
+      }
+      const sidecar = `${OUT}/seam-pairs.json`;
+      fs.writeFileSync(sidecar, JSON.stringify(pairs, null, 1));
+      note(pairs.length >= 4, `снято пар: ${pairs.length} (сайдкар ${sidecar})`);
+      console.log(`  дальше: node scripts/probe-seam.mjs`);
     }
 
     console.log("\n──────── ИТОГ ────────");
