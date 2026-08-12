@@ -900,9 +900,60 @@ async function main() {
             `кадр ${Math.round(rect.w)}×${Math.round(rect.h)} CSS @${DSF}`
         );
       }
+      /* ---- ВТОРОЙ ПРОХОД: ШОВ ВО ВРЕМЯ ДВИЖЕНИЯ, БЕЗ ЕДИНОГО КАДРА ----
+         Парный метод требует ОДНОГО положения и потому про движение молчит.
+         Но движение добавляет к геометрии шва ровно одну новую величину —
+         ВРЕМЕННОЙ РАЗЪЕЗД ДВУХ ЗАПИСЕЙ одного и того же значения:
+         `handle.style.left` пишет Motion, `canvas.style.clipPath` пишет петля
+         GL. Источник один (`position`), планировщики РАЗНЫЕ — совпадение
+         кадра конструкцией не гарантировано, его надо мерить. Метод найден
+         `fizik`: покадровая запись обоих значений и сопоставление рядов —
+         совпал ли клип с ручкой ТОГО ЖЕ кадра или предыдущего. Кадры не
+         снимаются вовсе, цена — секунды. */
+      await ev(`(()=>{
+        const h=${HANDLE(0)}; const cv=h.parentElement.querySelector('canvas');
+        window.__seq=[];
+        const num=(s)=>{ if(!s||s.indexOf("inset(")!==0) return null;
+          const t=s.slice(6,-1).trim().split(" ").filter(Boolean); const q=t[1];
+          if(!q||q.indexOf("%")<0) return null; return 100-parseFloat(q); };
+        const tick=()=>{ window.__seq.push([parseFloat(h.style.left)||0, num(cv.style.clipPath)]);
+          window.__raf=requestAnimationFrame(tick); };
+        window.__raf=requestAnimationFrame(tick); return 0;})()`);
+      {
+        const r = (await state(0)).rect;
+        const y = Math.round(r.t + r.h * 0.5);
+        const tp = (x) => [{ x: Math.round(x), y, id: 1, radiusX: 12, radiusY: 12, force: 1 }];
+        await call("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: tp(r.l + 6) });
+        for (let k = 1; k <= 30; k++) {
+          await call("Input.dispatchTouchEvent", {
+            type: "touchMove",
+            touchPoints: tp(r.l + 6 + ((r.w - 12) * k) / 30),
+          });
+          await sleep(55);
+        }
+        await sleep(400);
+        await call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+        await sleep(400);
+        const seq = await ev(`(()=>{cancelAnimationFrame(window.__raf); return window.__seq;})()`);
+        const motion = { rectW: r.w, frames: seq.length, moving: [] };
+        for (let i = 1; i < seq.length; i += 1) {
+          if (seq[i][1] === null) continue;
+          if (Math.abs(seq[i][0] - seq[i - 1][0]) < 1e-9) continue; // кадр покоя
+          motion.moving.push([
+            Math.abs(seq[i][1] - seq[i][0]), // клип против ручки ТОГО ЖЕ кадра
+            Math.abs(seq[i][1] - seq[i - 1][0]), // против ручки ПРЕДЫДУЩЕГО
+            Math.abs(seq[i][0] - seq[i - 1][0]), // шаг ручки за кадр
+          ]);
+        }
+        pairs.push({ label: "__motion", motion });
+        console.log(
+          `  движение: кадров ${seq.length}, из них с движением ручки ${motion.moving.length}`
+        );
+      }
+
       const sidecar = `${OUT}/seam-pairs.json`;
       fs.writeFileSync(sidecar, JSON.stringify(pairs, null, 1));
-      note(pairs.length >= 4, `снято пар: ${pairs.length} (сайдкар ${sidecar})`);
+      note(pairs.length >= 4, `снято пар: ${pairs.length - 1} + проход движения (сайдкар ${sidecar})`);
       console.log(`  дальше: node scripts/probe-seam.mjs`);
     }
 

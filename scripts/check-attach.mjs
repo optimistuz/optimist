@@ -7,7 +7,8 @@
  *   · путь БЕЗ `spawn` и БЕЗ подмены железа доходит до конца (положительная
  *     ловушка) — иначе полчаса владельца с A54 сгорели бы на отладке;
  *   · на неправильном стенде путь ПАДАЕТ, и падает ЗА ТО, ЗА ЧТО ДОЛЖЕН
- *     (три отрицательные ловушки).
+ *     (четыре отрицательные ловушки: чужой UA, цель не найдена, подмена
+ *     железа, стенд без сенсорного ввода).
  *
  * Закон проекта: гейты доказываются ПАДЕНИЕМ. Прибор, который только
  * «успешно проходит», однажды уже пропускал брак, честно рапортуя об успехе.
@@ -37,12 +38,21 @@ const ok = (good, text) => {
 };
 
 /** Поднять «телефон»: обычный Chrome с одной вкладкой на локальном файле. */
-async function standIn(port, ua) {
+async function standIn(port, ua, touch = true) {
   fs.mkdirSync(OUT, { recursive: true });
-  const html = `${OUT}/attach-selftest.html`;
+  const html = `${OUT}/attach-selftest${touch ? "" : "-notouch"}.html`;
+  /* ⚠️ ОТСУТСТВИЕ ТАЧА ОБЪЯВЛЯЕТ САМ СТЕНД, а не ключ запуска Chrome. Так
+     вышло не от красоты: `--touch-events=disabled` признак НЕ меняет —
+     headless Chrome рапортует `maxTouchPoints = 10` при любом значении флага
+     (проверено), и ловушка молчала, «доказывая» работу предохранителя,
+     который ни разу не сработал. Прибор читает `navigator.maxTouchPoints`
+     СО СТРАНИЦЫ — значит именно этот путь ловушка и обязана пройти. */
   fs.writeFileSync(
     html,
     "<!doctype html><meta charset=utf-8><title>attach-selftest</title>" +
+      (touch
+        ? ""
+        : "<script>Object.defineProperty(navigator,'maxTouchPoints',{get:()=>0});</script>") +
       "<body style=background:#fff>стенд самопроверки attach</body>"
   );
   const profile = `${process.env.TEMP}\\optimist-attach-${port}`;
@@ -55,6 +65,9 @@ async function standIn(port, ua) {
       "--user-data-dir=" + profile,
       "--no-first-run",
       "--no-default-browser-check",
+      // Флаг ЗАПУСКА, а не CDP-вызов, — запрет модуля не нарушается.
+      // (Обратный, `--touch-events=disabled`, признак НЕ меняет — см. standIn.)
+      "--touch-events=enabled",
       ...(ua ? [`--user-agent=${ua}`] : []),
       "file:///" + fs.realpathSync(html).replace(/\\/g, "/"),
     ],
@@ -83,7 +96,7 @@ async function probePath(port, needle, extra) {
 }
 
 async function main() {
-  console.log("──── САМОПРОВЕРКА ATTACH (4 ловушки; имя объявляет приговор) ────\n");
+  console.log("──── САМОПРОВЕРКА ATTACH (5 ловушек; имя объявляет приговор) ────\n");
 
   /* ── 1. ok-android-attach: андроидный UA → путь проходит целиком ───────── */
   let child = await standIn(9871, A54_UA);
@@ -158,6 +171,24 @@ async function main() {
     ok(
       !!err && /врёт про железо/.test(err) && /setCPUThrottlingRate/.test(err),
       `  повод ТОТ САМЫЙ (запрещённый вызов назван): «${(err || "—").slice(0, 120)}»`
+    );
+  } finally {
+    child.kill();
+  }
+
+  /* ── 5. brak-no-touch: андроидный UA, но БЕЗ сенсорного ввода ──────────
+     Предохранитель, который ни разу не сработал, не доказан. UA ловит
+     случайную ошибку, но не намеренную подмену: положительная ловушка выше —
+     это и есть десктоп с андроидным UA. Здесь проверяется второй признак —
+     мультитач, которого у десктопа нет. */
+  child = await standIn(9875, A54_UA, false);
+  try {
+    const { stand, err } = await probePath(9875, "attach-selftest");
+    if (stand) stand.close();
+    ok(!!err, "brak-no-touch: андроидный UA без сенсорного ввода отвергнут");
+    ok(
+      !!err && /СЕНСОРНОГО ВВОДА/.test(err),
+      `  повод ТОТ САМЫЙ (нет мультитача, а не UA): «${(err || "—").split("\n")[0].slice(0, 130)}»`
     );
   } finally {
     child.kill();

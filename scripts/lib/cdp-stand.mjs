@@ -56,6 +56,11 @@ export const DEVICE_FORBIDDEN = new Set([
   "Emulation.setUserAgentOverride",
   "Emulation.setDeviceOrientationOverride",
   "Emulation.setScrollbarsHidden",
+  // Врут про устройство ровно так же, как задушенный CPU (находка `fizik`):
+  // первое подменяет канал, второе — число ядер, а оба числа уходят в отчёт
+  // как «замер на живом A54».
+  "Network.emulateNetworkConditions",
+  "Emulation.setHardwareConcurrencyOverride",
 ]);
 
 const DEFAULT_CHROME =
@@ -316,6 +321,26 @@ export async function openStand(o) {
         `UA браузера и страницы РАСХОДЯТСЯ (браузер: ${androidBrowser ? "Android" : "не Android"}, ` +
           `страница: ${androidPage ? "Android" : "не Android"}) — кто-то подменяет UA, ` +
           `подлинность устройства не доказана`
+      );
+    /* ⚠️ ОДНОГО UA МАЛО, И САМОПРОВЕРКА ЭТО ПОКАЗЫВАЕТ: её положительная
+       ловушка — ДЕСКТОПНЫЙ Chrome с андроидным `--user-agent`, и по UA он
+       неотличим от телефона. Случайную ошибку (забыли `adb`, присоединились
+       к локальному браузеру) UA ловит; намеренную подмену — нет. Поэтому
+       спрашиваем ещё и железо, которое модуль и так читает: у телефона
+       МУЛЬТИТАЧ. Признак выбран `maxTouchPoints`, а не `pointer: fine`:
+       второй зависит от того, подключена ли к машине мышь, и ронял бы
+       прогон на телефоне со стилусом или OTG-мышью (находка `fizik`,
+       признак сужен исполнителем). */
+    if (!(pageUA?.touch > 0))
+      die(
+        `ATTACH=1 объявляет ЖИВОЕ УСТРОЙСТВО, но у него НЕТ СЕНСОРНОГО ВВОДА ` +
+          `(maxTouchPoints = ${pageUA?.touch}). Телефон без тача не бывает — ` +
+          `это десктоп с подменённым UA`
+      );
+    if (pageUA?.fine)
+      console.log(
+        `  ⚠️ у устройства pointer:fine — это законно (стилус, мышь по OTG), ` +
+          `но выводы о тач-эквивалентах на таком стенде делать нельзя`
       );
     if (pageUA?.vis !== "visible")
       die(
