@@ -71,7 +71,9 @@ export default function Header() {
   return (
     <header
       className={cn(
-        "fixed inset-x-0 top-0 z-50 transition-all duration-[400ms] ease-soft",
+        // vt-header — собственное имя снимка View Transitions: шапка сквозная
+        // и в рэк-фокусе страницы не участвует (не мигает при переходе).
+        "vt-header fixed inset-x-0 top-0 z-50 transition-all duration-[400ms] ease-soft",
         // Стеклянная шапка: мир расфокусируется за ней (идиома фокуса).
         // .glass — единый премиальный рецепт (тинт + blur+saturate + кромка
         // + верхний блик + тень глубины); до скролла шапка прозрачна.

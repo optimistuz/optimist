@@ -99,11 +99,24 @@ export default function CollectionPage({
               <li key={f.id}>
                 <a href={`/frames/${f.slug}`} className="group block">
                   <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-paper">
+                    {/* Морф оправы «листинг → страница модели» (этап 8, шаг 4).
+                        Имя выдаётся ЗДЕСЬ, а перелёт включится сам, когда
+                        страница модели повесит на свой кадр то же имя: у
+                        междокументных View Transitions это делает браузер,
+                        без единой строки JavaScript.
+                        ⚠️ ИМЯ ОБЯЗАНО БЫТЬ УНИКАЛЬНО В ДОКУМЕНТЕ — поэтому
+                        оно от `f.id`, а не от коллекции: два узла с одним
+                        именем отменяют переход целиком.
+                        ⚠️ И ТОЛЬКО offwhite→offwhite: снимок VT НЕ сохраняет
+                        `mix-blend-mode` (CLAUDE.md §2.1), поэтому blend-оправа,
+                        пролетев через переход, приедет белым прямоугольником.
+                        Здесь кадр лежит на ровном `bg-paper` — это законно. */}
                     <Image
                       src={framePhotoPath(f.id, "front")}
                       alt={f.name}
                       fill
                       sizes="(min-width:1024px) 30vw, (min-width:640px) 45vw, 100vw"
+                      style={{ viewTransitionName: `vt-frame-${f.id}` }}
                       className="object-contain transition-transform duration-500 ease-soft group-hover:scale-[1.03]"
                     />
                   </div>

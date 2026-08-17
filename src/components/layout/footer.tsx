@@ -11,7 +11,9 @@ export default function Footer() {
   const year = new Date().getFullYear();
 
   return (
-    <footer className="border-t border-line bg-offwhite">
+    // vt-footer — собственное имя снимка View Transitions: подвал одинаков
+    // на всех маршрутах и в рэк-фокусе страницы не участвует.
+    <footer className="vt-footer border-t border-line bg-offwhite">
       <Container className="py-16 sm:py-20">
         <div className="grid grid-cols-1 gap-12 md:grid-cols-12">
           {/* Бренд: логотип — последний элемент сайта,

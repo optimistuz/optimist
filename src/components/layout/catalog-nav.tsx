@@ -63,7 +63,11 @@ export default function CatalogNav() {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
             transition={{ duration: 0.3, ease: EASE }}
-            className="glass-dark glass-sheen fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full text-paper"
+            // vt-catalog-lens — своё имя снимка VT (хром витрины вне
+            // рэк-фокуса root). Отличается от vt-rail-lens намеренно: узлы
+            // живут на разных маршрутах, общее имя дало бы морф там, где
+            // кнопки разного назначения.
+            className="vt-catalog-lens glass-dark glass-sheen fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full text-paper"
           >
             {/* «Линза» — кольцо со зрачком (мотив оптики, не гамбургер) */}
             <span className="relative flex h-6 w-6 items-center justify-center rounded-full border border-paper/85">

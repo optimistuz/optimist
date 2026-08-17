@@ -124,7 +124,7 @@ export default function SectionRail() {
       {/* ДЕСКТОП: вертикальная шкала наводки у правого края */}
       <nav
         aria-label="Карта разделов"
-        className="rail-list group/rail fixed right-5 top-1/2 z-40 hidden -translate-y-1/2 flex-row items-stretch gap-3 lg:flex xl:right-7"
+        className="vt-rail rail-list group/rail fixed right-5 top-1/2 z-40 hidden -translate-y-1/2 flex-row items-stretch gap-3 lg:flex xl:right-7"
       >
         <ul className="flex flex-col justify-center gap-3.5">
           {sections.map((s) => {
@@ -196,7 +196,11 @@ export default function SectionRail() {
               exit={{ opacity: 0, scale: 0.8 }}
               transition={{ duration: 0.3, ease: EASE }}
               className={cn(
-                "glass-sheen fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full transition-colors duration-500",
+                // vt-rail-lens — своё имя снимка VT. Имя ОБЯЗАНО отличаться от
+                // vt-rail: два узла с одним именем в документе отменяют
+                // переход целиком. Десктопная шкала и мобильная кнопка —
+                // разные узлы, живут под разными брейкпоинтами.
+                "vt-rail-lens glass-sheen fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full transition-colors duration-500",
                 // Стеклянная линза: тёмное матовое стекло на светлом фоне;
                 // над тёмной секцией — светлое (как инверсия шкалы)
                 invert ? "glass text-ink" : "glass-dark text-paper"
